@@ -7,7 +7,9 @@
 
 ## Authentication
 
-Authentication method TBD (likely API key or JWT).
+**No authentication required** for the batch endpoint. The extension communicates directly with the user's local or self-hosted backend.
+
+*Future consideration: If exposing API to internet, add API key or token-based auth.*
 
 ---
 
@@ -24,17 +26,16 @@ Accepts a batch of properties from a crawl session page.
 | Header | Required | Description |
 |--------|----------|-------------|
 | `Content-Type` | Yes | `application/json` |
-| `X-API-Key` | TBD | API authentication key |
 
 #### Request Body
 
 ```typescript
 interface BatchIngestionRequest {
-  // The crawl session identifier
-  session_id: string;  // UUID v4 format
+  // The crawl session identifier (from backend)
+  session_id: number;  // Integer ID from CrawlSession table
   
-  // The saved search being crawled
-  search_id: string;   // UUID format
+  // The saved search being crawled (from backend)
+  search_id: number;   // Integer ID from SavedSearch table
   
   // External search ID from Idealista (for reference)
   external_search_id: string;
@@ -98,8 +99,8 @@ interface PropertyData {
 
 ```json
 {
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "search_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+  "session_id": 1,
+  "search_id": 1,
   "external_search_id": "115265817",
   "page": 1,
   "properties": [
@@ -197,8 +198,8 @@ interface PropertyResult {
   // Operation performed
   action: 'created' | 'updated' | 'seen' | 'error';
   
-  // Property UUID in our system (if created/updated)
-  property_id?: string;
+  // Property ID in database (if created/updated)
+  property_id?: number;
   
   // List of changes detected (if updated)
   changes?: PropertyChangeInfo[];
@@ -250,7 +251,7 @@ interface PropertyError {
     {
       "external_id": "109363171",
       "action": "updated",
-      "property_id": "550e8400-e29b-41d4-a716-446655440001",
+      "property_id": 1234,
       "changes": [
         {
           "attribute": "price",
@@ -262,12 +263,12 @@ interface PropertyError {
     {
       "external_id": "104426196",
       "action": "seen",
-      "property_id": "550e8400-e29b-41d4-a716-446655440002"
+      "property_id": 5678
     },
     {
       "external_id": "999999999",
       "action": "created",
-      "property_id": "550e8400-e29b-41d4-a716-446655440003"
+      "property_id": 9999
     }
   ],
   "errors": [],
@@ -300,23 +301,9 @@ Invalid request format or validation errors.
       },
       {
         "field": "session_id",
-        "message": "Invalid UUID format"
+        "message": "Session not found"
       }
     ]
-  }
-}
-```
-
-#### 401 Unauthorized
-
-Authentication failed or missing API key.
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Invalid or missing API key"
   }
 }
 ```
@@ -332,7 +319,7 @@ Session or search ID not found.
     "code": "SESSION_NOT_FOUND",
     "message": "Crawl session not found",
     "details": {
-      "session_id": "550e8400-e29b-41d4-a716-446655440000"
+      "session_id": 12345
     }
   }
 }
@@ -405,6 +392,166 @@ Server error during processing.
 
 ---
 
+## Additional Backend Endpoints
+
+### Create Crawl Session
+
+**POST** `/crawl/sessions`
+
+Initialize a new crawl session.
+
+#### Request
+
+```json
+{
+  "server_url": "http://localhost:8000",
+  "human_like_enabled": true,
+  "extension_version": "1.0.0",
+  "selected_search_ids": [1, 2, 3]
+}
+```
+
+#### Response (201 Created)
+
+```json
+{
+  "id": 1,
+  "status": "running",
+  "started_at": "2026-05-10T14:30:00Z",
+  "total_properties": 0,
+  "pages_processed": 0,
+  "searches_crawled": 0
+}
+```
+
+---
+
+### Get Saved Searches
+
+**GET** `/searches`
+
+Retrieve all saved searches from the database.
+
+#### Response (200 OK)
+
+```json
+{
+  "searches": [
+    {
+      "id": 1,
+      "external_search_id": "115265817",
+      "name": "Viviendas en Briviesca",
+      "url_path": "/venta-viviendas/briviesca-burgos/",
+      "full_url": "https://www.idealista.com/venta-viviendas/briviesca-burgos/",
+      "result_count": 79,
+      "crawl_enabled": true,
+      "last_crawled_at": "2026-05-09T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### Sync Saved Searches
+
+**POST** `/searches/sync`
+
+Update the saved searches list from the extension (when user has selected searches on the page).
+
+#### Request
+
+```json
+{
+  "searches": [
+    {
+      "external_search_id": "115265817",
+      "name": "Viviendas en Briviesca",
+      "url": "/venta-viviendas/briviesca-burgos/",
+      "full_url": "https://www.idealista.com/venta-viviendas/briviesca-burgos/",
+      "result_count": 79,
+      "description": "Comprar viviendas en Briviesca, Burgos"
+    }
+  ]
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "synced": 1,
+  "created": 0,
+  "updated": 1
+}
+```
+
+---
+
+### Complete Crawl Session
+
+**POST** `/crawl/sessions/{session_id}/complete`
+
+Mark a crawl session as completed.
+
+#### Request
+
+```json
+{
+  "total_properties": 500,
+  "pages_processed": 20,
+  "searches_crawled": 2
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "id": 1,
+  "status": "completed",
+  "ended_at": "2026-05-10T15:45:00Z",
+  "total_properties": 500,
+  "pages_processed": 20,
+  "searches_crawled": 2
+}
+```
+
+---
+
+### Detect Missing Properties
+
+**POST** `/crawl/sessions/{session_id}/searches/{search_id}/detect-missing`
+
+After processing all pages of a search, call this to detect missing properties.
+
+#### Request
+
+```json
+{
+  "current_property_external_ids": ["109363171", "104426196", "..."]
+}
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "missing_detected": 5,
+  "marked_as_missing": 3,
+  "properties": [
+    {
+      "id": 123,
+      "idealista_id": "987654321",
+      "status": "missing",
+      "missing_since": "2026-05-10T14:35:00Z"
+    }
+  ]
+}
+```
+
+---
+
 ## Extension API Methods
 
 The Chrome extension exposes the following methods for internal communication:
@@ -416,7 +563,7 @@ The Chrome extension exposes the following methods for internal communication:
 interface StartCrawlMessage {
   type: 'START_CRAWL';
   payload: {
-    search_ids: string[];  // Selected saved search IDs
+    search_ids: number[];  // Database IDs of selected searches
     server_url: string;
   };
 }
@@ -424,7 +571,7 @@ interface StartCrawlMessage {
 // Response
 interface StartCrawlResponse {
   success: boolean;
-  session_id?: string;
+  session_id?: number;
   error?: string;
 }
 ```
@@ -440,9 +587,9 @@ interface GetStatusMessage {
 // Response
 interface GetStatusResponse {
   is_running: boolean;
-  session_id?: string;
+  session_id?: number;
   current_search?: {
-    id: string;
+    id: number;
     name: string;
   };
   current_page?: number;
@@ -477,7 +624,7 @@ interface ResumeCrawlMessage {
 
 interface ResumeCrawlResponse {
   success: boolean;
-  session_id?: string;
+  session_id?: number;
   error?: string;
 }
 ```
@@ -491,13 +638,14 @@ interface GetSearchesMessage {
 
 interface GetSearchesResponse {
   searches: Array<{
-    id: string;
+    id: number;
     external_id: string;
     name: string;
     url: string;
     result_count?: number;
     description?: string;
     last_crawled_at?: string;
+    crawl_enabled: boolean;
   }>;
 }
 ```

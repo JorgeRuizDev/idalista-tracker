@@ -13,6 +13,25 @@
 - **Git**: For version control
 - **Chrome Browser**: v88+ (Manifest V3 support)
 - **Python**: 3.11+ (for backend API)
+- **Existing Backend**: The FastAPI backend should already be set up
+
+---
+
+## Architecture Overview
+
+This project consists of two parts:
+
+1. **Chrome Extension** (TypeScript) - New component
+   - Runs in the browser
+   - Extracts data from Idealista pages
+   - Sends data to the backend API
+   - No authentication required (connects to your local backend)
+
+2. **FastAPI Backend** (Python) - Existing, needs modifications
+   - Receives property data from extension
+   - Stores in SQLite database
+   - Tracks property history and changes
+   - Manages crawl sessions
 
 ---
 
@@ -20,7 +39,7 @@
 
 ```
 idalista-tracker/
-├── extension/                    # Chrome Extension (TypeScript)
+├── extension/                    # NEW: Chrome Extension (TypeScript)
 │   ├── src/
 │   │   ├── background.ts         # Service worker
 │   │   ├── content/
@@ -48,13 +67,19 @@ idalista-tracker/
 │   ├── tsconfig.json
 │   └── vite.config.ts            # Build configuration
 │
-├── src/                          # Existing Python backend
-│   ├── api/
+├── src/                          # EXISTING: Python backend
+│   ├── api/routes/
+│   │   ├── properties.py         # MODIFY: Add batch endpoint
+│   │   ├── crawl.py              # MODIFY: Add session endpoints
+│   │   └── searches.py           # NEW: Saved search routes
 │   ├── services/
-│   └── ...
+│   │   ├── property_service.py   # MODIFY: Add batch processing
+│   │   └── crawl_service.py      # NEW: Crawl management
+│   ├── database/
+│   │   └── models.py             # MODIFY: Add new models
+│   └── main.py                   # MODIFY: Register routes
 │
 └── specs/003-chrome-extension-crawler/
-    ├── spec.md
     ├── plan.md
     ├── research.md
     ├── data-model.md
@@ -64,9 +89,48 @@ idalista-tracker/
 
 ---
 
-## Setup Instructions
+## Step 1: Backend Setup (Existing)
 
-### Step 1: Create Extension Directory Structure
+The backend should already be set up. If not, refer to the existing project setup.
+
+### Start the Backend
+
+```bash
+# From project root
+cd src
+
+# Install dependencies (if not already done)
+pip install -r requirements.txt
+
+# Run database migrations (after we add the new models)
+alembic upgrade head
+
+# Start the API server
+uvicorn main:app --reload --port 8000
+```
+
+The API will be available at `http://localhost:8000`
+
+### Verify Backend is Running
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-05-10T...",
+  "version": "0.1.0"
+}
+```
+
+---
+
+## Step 2: Extension Setup (New)
+
+### Create Extension Directory Structure
 
 ```bash
 # From project root
@@ -75,7 +139,7 @@ mkdir -p extension/public/{icons,_locales/en}
 mkdir -p extension/dist
 ```
 
-### Step 2: Initialize Node.js Project
+### Initialize Node.js Project
 
 ```bash
 cd extension
@@ -83,15 +147,15 @@ cd extension
 # Initialize with defaults
 npm init -y
 
-# Install dependencies
-npm install -D typescript @types/chrome vite @vitejs/plugin-react
+# Install TypeScript and build tools
+npm install -D typescript @types/chrome vite
 
 # Install dev tools
 npm install -D eslint @typescript-eslint/parser @typescript-eslint/plugin
 npm install -D prettier eslint-config-prettier
 ```
 
-### Step 3: TypeScript Configuration
+### TypeScript Configuration
 
 Create `extension/tsconfig.json`:
 
@@ -121,7 +185,7 @@ Create `extension/tsconfig.json`:
 }
 ```
 
-### Step 4: Vite Configuration
+### Vite Configuration
 
 Create `extension/vite.config.ts`:
 
@@ -155,7 +219,7 @@ export default defineConfig({
 });
 ```
 
-### Step 5: Manifest V3
+### Manifest V3
 
 Create `extension/public/manifest.json`:
 
@@ -168,11 +232,11 @@ Create `extension/public/manifest.json`:
   "permissions": [
     "storage",
     "activeTab",
-    "scripting",
-    "tabs"
+    "scripting"
   ],
   "host_permissions": [
-    "https://www.idealista.com/*"
+    "https://www.idealista.com/*",
+    "http://localhost:8000/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -210,7 +274,7 @@ Create `extension/public/manifest.json`:
 }
 ```
 
-### Step 6: Build Scripts
+### Build Scripts
 
 Update `extension/package.json`:
 
@@ -269,38 +333,19 @@ npm run build
 4. Select the `extension/dist` folder
 5. Extension should appear in the toolbar
 
-### 4. Making Changes
+### 4. Configure Extension
+
+1. Click extension icon → Options (or right-click → Options)
+2. Set Server URL to `http://localhost:8000`
+3. Adjust delay settings if needed
+4. Save configuration
+
+### 5. Making Changes
 
 1. Edit source files in `extension/src/`
 2. Vite rebuilds automatically in dev mode
 3. Click the refresh icon on the extension card in `chrome://extensions/`
 4. Test the changes
-
----
-
-## Development Scripts
-
-### Type Checking
-
-```bash
-npm run type-check
-```
-
-### Linting
-
-```bash
-# Check for issues
-npm run lint
-
-# Fix auto-fixable issues
-npm run lint:fix
-```
-
-### Formatting
-
-```bash
-npm run format
-```
 
 ---
 
@@ -314,7 +359,7 @@ npm run format
    - [ ] Options page opens from right-click menu
 
 2. **Configuration**
-   - [ ] Can save server URL
+   - [ ] Can save server URL (`http://localhost:8000`)
    - [ ] Can enable/disable human-like behavior
    - [ ] Can adjust delay settings
    - [ ] Settings persist after browser restart
@@ -330,7 +375,7 @@ npm run format
    - [ ] Shows progress indicator
    - [ ] Navigates through pages automatically
    - [ ] Extracts property data
-   - [ ] Sends data to configured server
+   - [ ] Sends data to backend
 
 5. **Pause/Resume**
    - [ ] Can pause crawling mid-session
@@ -345,28 +390,49 @@ npm run format
 
 ---
 
-## Backend API Setup
+## API Communication
 
-The extension requires a running backend API to receive property data.
+The extension communicates with the backend via HTTP (no authentication required):
 
-### Start Existing Backend
+### Example API Call
 
-```bash
-# From project root
-cd src
+```typescript
+// From extension/src/services/api.ts
 
-# Install Python dependencies (if not already)
-pip install -r requirements.txt
+const API_BASE = 'http://localhost:8000/api/v1';
 
-# Run the API
-uvicorn main:app --reload --port 8000
+async function ingestBatch(data: BatchData) {
+  const response = await fetch(`${API_BASE}/properties/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return response.json();
+}
 ```
 
-### Configure Extension
+### CORS Configuration
 
-1. Open extension Options page
-2. Set Server URL to `http://localhost:8000`
-3. Save configuration
+The backend already has CORS enabled in `src/main.py`:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+For production, restrict `allow_origins` to your specific extension ID.
 
 ---
 
@@ -400,6 +466,17 @@ cd extension && npm run dev
 
 # Terminal 2: Python backend
 cd src && uvicorn main:app --reload --port 8000
+```
+
+### Run Tests
+
+```bash
+# Backend tests
+cd src
+pytest
+
+# Extension type check
+cd extension && npm run type-check
 ```
 
 ---
@@ -441,7 +518,17 @@ rm -rf node_modules/.vite
 
 - Verify backend is running: `curl http://localhost:8000/health`
 - Check CORS settings in backend
-- Verify `host_permissions` in manifest includes API URL
+- Verify `host_permissions` in manifest includes `http://localhost:8000/*`
+- Check browser console for network errors
+
+### Database Issues
+
+```bash
+# Reset database (WARNING: deletes all data!)
+cd src
+rm -f *.db
+alembic upgrade head
+```
 
 ---
 
@@ -453,18 +540,30 @@ rm -rf node_modules/.vite
 | `extension/src/content/index.ts` | Content script - DOM extraction |
 | `extension/src/popup/index.html` | Extension popup UI |
 | `extension/src/options/index.html` | Configuration page |
-| `extension/src/services/api.ts` | API client |
+| `extension/src/services/api.ts` | API client (no auth) |
 | `extension/src/services/crawler.ts` | Crawl logic |
 | `extension/src/types/index.ts` | TypeScript interfaces |
 | `extension/public/manifest.json` | Extension manifest |
+| `src/api/routes/properties.py` | Backend batch endpoint |
+| `src/database/models.py` | SQLAlchemy models |
+| `src/services/property_service.py` | Property business logic |
 
 ---
 
 ## Next Steps
 
 1. **Generate Icon Files**: Create 16x16, 32x32, 48x48, 128x128 PNG icons in `public/icons/`
-2. **Implement Background Script**: Service worker for crawl orchestration
-3. **Implement Content Scripts**: DOM extraction for searches and listings
-4. **Build Popup UI**: React or vanilla JS for user interface
-5. **Build Options Page**: Configuration settings
-6. **Test End-to-End**: Full crawl flow from extension to API
+2. **Create Database Migration**: Add new models and modify Property table
+3. **Implement Backend Batch Endpoint**: Add `POST /api/v1/properties/batch`
+4. **Implement Background Script**: Service worker for crawl orchestration
+5. **Implement Content Scripts**: DOM extraction for searches and listings
+6. **Build Popup UI**: Search selection, crawl control, progress display
+7. **Build Options Page**: Configuration settings
+8. **Test End-to-End**: Full crawl flow from extension to database
+
+## Notes
+
+- **No authentication** is implemented. The extension connects directly to your local backend.
+- If exposing the backend to the internet, add API key or token-based authentication.
+- The backend uses **SQLite** by default (sufficient for single-user use).
+- For multi-user scenarios, consider migrating to PostgreSQL.

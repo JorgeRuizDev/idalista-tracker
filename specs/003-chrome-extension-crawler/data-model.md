@@ -6,368 +6,664 @@
 
 ---
 
-## Entity Overview
+## Overview
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ CrawlSession    │────<│ SavedSearch     │────<│ Property        │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                                              │
-         │                      ┌─────────────────┐     │
-         └─────────────────────>│ PropertyHistory │<────┘
-                                └─────────────────┘
-                                         │
-                                ┌─────────────────┐
-                                │ PropertyChange  │
-                                └─────────────────┘
-```
+This document describes the database schema modifications needed for the Chrome extension crawler feature. The existing database uses **SQLAlchemy with SQLite** (not MongoDB as initially assumed).
+
+### Existing Models (from Gmail crawler)
+- `EmailSource` - Emails from Gmail
+- `Property` - Real estate listings
+- `PriceHistory` - Price change tracking
+
+### New Models (for Extension crawler)
+- `CrawlSession` - Crawl session tracking
+- `SavedSearch` - Idealista saved searches
+- `PropertyVisibility` - When properties are seen/missing
+- `PropertyChange` - Track all attribute changes (not just price)
 
 ---
 
-## 1. CrawlSession
+## Modified Existing Models
 
-Represents a single crawling operation from start to completion.
+### 1. Property (Modified)
 
-### Fields
+**Additions to existing model**:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | UUID | Yes | Primary key (generated) |
-| `started_at` | DateTime | Yes | When the crawl session started |
-| `ended_at` | DateTime | No | When the crawl session completed (null if running) |
-| `status` | Enum | Yes | `running`, `completed`, `paused`, `failed` |
-| `server_url` | String | Yes | The crawl server URL used for this session |
-| `searches_crawled` | Array[UUID] | Yes | List of SavedSearch IDs that were processed |
-| `total_properties` | Integer | Yes | Total properties processed in this session |
-| `pages_processed` | Integer | Yes | Total pages processed across all searches |
-| `errors_count` | Integer | Yes | Number of errors encountered |
-| `human_like_enabled` | Boolean | Yes | Whether human-like behavior was enabled |
-| `created_by_extension` | String | Yes | Extension version identifier |
+| `status` | Enum | Yes | `active`, `missing`, `sold` (default: `active`) |
+| `first_seen_at` | DateTime | Yes | When property was first discovered |
+| `last_seen_at` | DateTime | Yes | When property was last seen |
+| `missing_since` | DateTime | No | When property was marked missing |
 
-### Validation Rules
+**Existing fields to keep**:
+- `id`, `idealista_id`, `title`, `location`, `original_price`, `current_price`
+- `size_m2`, `bedrooms`, `floor`, `has_elevator`, `property_url`, `image_url`
+- `created_at`, `updated_at`, `is_active`
+- Relationship: `price_history`
 
-- `status` must be one of: `running`, `completed`, `paused`, `failed`
-- `ended_at` must be >= `started_at` if set
-- `total_properties` >= 0
-- `errors_count` >= 0
-
-### State Transitions
-
-```
-         ┌─────────┐
-    ┌───>│ RUNNING │<──────┐
-    │    └────┬────┘       │
-    │         │             │
-complete    pause          resume
-    │         │             │
-    │         ▼             │
-    │    ┌─────────┐        │
-    └────│ PAUSED  │────────┘
-         └────┬────┘
-              │
-           complete
-              │
-         ┌────┴────┐
-         │COMPLETED│
-         └─────────┘
-              │
-           fail
-              │
-         ┌────┴────┐
-         │ FAILED  │
-         └─────────┘
+**New Relationships**:
+```python
+# In Property model:
+visibility_history: Mapped[List["PropertyVisibility"]]
+attribute_changes: Mapped[List["PropertyChange"]]
+crawl_sessions: Mapped[List["CrawlSession"]]  # Many-to-many via association
 ```
 
----
+### 2. PriceHistory (Keep As-Is)
 
-## 2. SavedSearch
-
-Represents a saved search/filter configuration from Idealista.
-
-### Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | UUID | Yes | Primary key (generated) |
-| `external_search_id` | String | Yes | The ID from Idealista (e.g., "115265817") |
-| `name` | String | Yes | The search name (e.g., "Viviendas en Briviesca") |
-| `url` | String | Yes | The relative URL path (e.g., "/venta-viviendas/briviesca-burgos/") |
-| `full_url` | String | Yes | The complete URL |
-| `description` | String | No | Human-readable description of filters |
-| `result_count` | Integer | No | Last known result count |
-| `created_at` | DateTime | Yes | When this record was first created |
-| `last_crawled_at` | DateTime | No | When this search was last crawled |
-| `is_active` | Boolean | Yes | Whether this search is still in Idealista |
-| `crawl_enabled` | Boolean | Yes | Whether user has selected this for crawling |
-
-### Validation Rules
-
-- `external_search_id` must be unique
-- `url` must start with "/"
-- `full_url` must be a valid URL
-- `result_count` >= 0 if set
+Continues to track price changes specifically. The new `PropertyChange` model will track other attribute changes.
 
 ---
 
-## 3. Property
+## New Models
 
-Represents a real estate listing from Idealista.
+### 3. CrawlSession
 
-### Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | UUID | Yes | Primary key (generated) |
-| `external_id` | String | Yes | The property ID from Idealista (e.g., "109363171") |
-| `title` | String | Yes | Full property title |
-| `price` | Integer | Yes | Price in EUR |
-| `currency` | String | Yes | Currency code (always "EUR") |
-| `location` | String | Yes | Location string (e.g., "Calle Mayor, Briviesca") |
-| `url` | String | Yes | Full URL to property detail page |
-| `square_meters` | Integer | No | Property size in m² |
-| `bedrooms` | Integer | No | Number of bedrooms |
-| `floor_info` | String | No | Floor and elevator info (e.g., "Planta 2ª exterior con ascensor") |
-| `description` | String | No | Property description (may be truncated) |
-| `photos` | Array[String] | No | Array of photo URLs |
-| `first_seen_at` | DateTime | Yes | When this property was first crawled |
-| `last_seen_at` | DateTime | Yes | When this property was last seen |
-| `status` | Enum | Yes | `active`, `missing`, `sold` |
-| `current_search_ids` | Array[UUID] | Yes | Which saved searches currently contain this property |
-
-### Validation Rules
-
-- `external_id` must be unique
-- `price` >= 0
-- `square_meters` >= 0 if set
-- `bedrooms` >= 0 if set
-- `status` must be one of: `active`, `missing`, `sold`
-- `url` must be valid
-
-### Status Logic
-
-| Status | Condition |
-|--------|-----------|
-| `active` | Property was seen in the most recent crawl of at least one saved search |
-| `missing` | Property was not seen in the most recent crawl of any saved search that previously contained it |
-| `sold` | Property has been `missing` for more than 30 days |
-
----
-
-## 4. PropertyHistory
-
-Records the complete visibility history of a property across crawl sessions.
-
-### Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | UUID | Yes | Primary key (generated) |
-| `property_id` | UUID | Yes | Reference to Property |
-| `crawl_session_id` | UUID | Yes | Reference to CrawlSession |
-| `event_type` | Enum | Yes | `seen`, `missing` |
-| `timestamp` | DateTime | Yes | When this event occurred |
-| `saved_search_id` | UUID | Yes | Which saved search this event relates to |
-
-### Validation Rules
-
-- `event_type` must be one of: `seen`, `missing`
-- `timestamp` must be within the crawl session time range
-- Combination of (`property_id`, `crawl_session_id`, `saved_search_id`) should be unique
-
-### Event Semantics
-
-| Event Type | Meaning |
-|------------|---------|
-| `seen` | Property was found in the search results during this crawl session |
-| `missing` | Property was NOT found in search results where it previously existed |
-
----
-
-## 5. PropertyChange
-
-Records specific attribute changes to a property over time.
-
-### Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | UUID | Yes | Primary key (generated) |
-| `property_id` | UUID | Yes | Reference to Property |
-| `crawl_session_id` | UUID | Yes | Reference to CrawlSession when change was detected |
-| `attribute_name` | Enum | Yes | Which attribute changed |
-| `old_value` | JSON | No | Previous value (null if new property) |
-| `new_value` | JSON | Yes | New value |
-| `timestamp` | DateTime | Yes | When this change was detected |
-| `change_type` | Enum | Yes | `created`, `updated`, `deleted` |
-
-### Trackable Attributes
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `price` | Integer | Price in EUR |
-| `square_meters` | Integer | Size in m² |
-| `bedrooms` | Integer | Number of bedrooms |
-| `floor_info` | String | Floor and elevator info |
-| `description` | String | Property description |
-| `photos` | Array | Photo URLs |
-| `title` | String | Property title |
-| `location` | String | Location string |
-
-### Validation Rules
-
-- `attribute_name` must be one of the trackable attributes
-- `change_type` must be one of: `created`, `updated`, `deleted`
-- `old_value` and `new_value` must match the type of the attribute
-
-### Change Detection Logic
+Represents a single crawling operation.
 
 ```python
-if property_not_in_db:
-    create PropertyChange(type='created', old_value=null, new_value=new_value)
-elif old_value != new_value:
-    create PropertyChange(type='updated', old_value=old_value, new_value=new_value)
+class CrawlSession(Base):
+    __tablename__ = "crawl_session"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Session timing
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Status: running, completed, paused, failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    
+    # Configuration used
+    server_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    human_like_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    extension_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    
+    # Statistics
+    total_properties: Mapped[int] = mapped_column(Integer, default=0)
+    pages_processed: Mapped[int] = mapped_column(Integer, default=0)
+    searches_crawled: Mapped[int] = mapped_column(Integer, default=0)
+    errors_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    properties: Mapped[List["Property"]] = relationship(
+        secondary="crawl_session_property",
+        back_populates="crawl_sessions"
+    )
+    visibility_events: Mapped[List["PropertyVisibility"]] = relationship(
+        back_populates="crawl_session"
+    )
+    attribute_changes: Mapped[List["PropertyChange"]] = relationship(
+        back_populates="crawl_session"
+    )
+```
+
+**Association table** for many-to-many relationship:
+```python
+crawl_session_property = Table(
+    "crawl_session_property",
+    Base.metadata,
+    Column("crawl_session_id", ForeignKey("crawl_session.id"), primary_key=True),
+    Column("property_id", ForeignKey("property.id"), primary_key=True),
+)
+```
+
+**State Transitions**:
+```
+RUNNING ──pause──> PAUSED ──resume──> RUNNING
+   │                    │
+   └──complete──> COMPLETED
+   │
+   └──fail──────> FAILED
 ```
 
 ---
 
-## 6. CrawlConfiguration (Extension Storage)
+### 4. SavedSearch
 
-User settings for the Chrome extension (stored in Chrome Storage API).
-
-### Fields
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `server_url` | String | Yes | - | Base URL of crawl server API |
-| `human_like_enabled` | Boolean | Yes | true | Enable human-like behavior |
-| `min_page_delay` | Integer | Yes | 2000 | Minimum delay on page load (ms) |
-| `max_page_delay` | Integer | Yes | 8000 | Maximum delay on page load (ms) |
-| `min_navigation_delay` | Integer | Yes | 5000 | Minimum delay between pages (ms) |
-| `max_navigation_delay` | Integer | Yes | 15000 | Maximum delay between pages (ms) |
-| `max_retries` | Integer | Yes | 5 | Max retry attempts for failed requests |
-| `retry_base_delay` | Integer | Yes | 1000 | Base delay for exponential backoff (ms) |
-| `rate_limit_pause` | Integer | Yes | 300000 | Pause duration on rate limit (5 min) |
-| `rate_limit_max_events` | Integer | Yes | 3 | Max rate limit events before stopping |
-
-### Validation Rules
-
-- `server_url` must be valid URL
-- `min_*_delay` < `max_*_delay`
-- All delay values >= 0
-- `max_retries` >= 0
-
----
-
-## Relationships
-
-### One-to-Many Relationships
-
-- **CrawlSession** → PropertyHistory (a session has many history entries)
-- **CrawlSession** → PropertyChange (a session may have many changes)
-- **SavedSearch** → Property (a search contains many properties over time)
-- **Property** → PropertyHistory (a property has many history entries)
-- **Property** → PropertyChange (a property may have many changes)
-
-### Many-to-Many Relationships
-
-- **SavedSearch** ↔ **Property** (properties can appear in multiple searches)
-  - Tracked via `Property.current_search_ids` array
-  - Tracked via `PropertyHistory.saved_search_id`
-
----
-
-## Data Flow
-
-### Batch Ingestion Flow
-
-```
-1. Extension POST /api/v1/properties/batch
-   └─> Body: {session_id, search_id, page, properties[]}
-
-2. API Processes Each Property:
-   a. Check if external_id exists
-   b. If new: Create Property, PropertyChange(type='created')
-   c. If existing: Update last_seen_at, check for changes
-   d. If changed: Create PropertyChange(type='updated')
-   e. Create PropertyHistory(type='seen')
-   f. Update Property.current_search_ids
-
-3. After Batch Complete:
-   a. Find properties in search not in batch
-   b. Create PropertyHistory(type='missing') for each
-   c. Update Property.status if appropriate
-```
-
-### Missing Property Detection
+Represents a saved search/filter from Idealista.
 
 ```python
-# After processing all properties from a search
-previous_properties = get_properties_from_search(search_id, previous_session)
-current_properties = get_properties_from_search(search_id, current_session)
-
-missing_properties = previous_properties - current_properties
-
-for prop in missing_properties:
-    create PropertyHistory(
-        property_id=prop.id,
-        event_type='missing',
-        crawl_session_id=current_session.id,
-        saved_search_id=search_id
+class SavedSearch(Base):
+    __tablename__ = "saved_search"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # External ID from Idealista
+    external_search_id: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False, index=True
     )
     
-    # Check if property exists in ANY other search
-    if prop.id not in any_other_active_search:
-        prop.status = 'missing'
+    # Search details
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    url_path: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g., /venta-viviendas/briviesca-burgos/
+    full_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Tracking
+    result_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    crawl_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_crawled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    visibility_events: Mapped[List["PropertyVisibility"]] = relationship(
+        back_populates="saved_search"
+    )
+```
+
+---
+
+### 5. PropertyVisibility
+
+Tracks when properties are seen or go missing in searches.
+
+```python
+class PropertyVisibility(Base):
+    __tablename__ = "property_visibility"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Event details
+    event_type: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # "seen" or "missing"
+    
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+    
+    # Page number when seen (null when missing)
+    page_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    # Foreign keys
+    property_id: Mapped[int] = mapped_column(
+        ForeignKey("property.id"), nullable=False, index=True
+    )
+    crawl_session_id: Mapped[int] = mapped_column(
+        ForeignKey("crawl_session.id"), nullable=False, index=True
+    )
+    saved_search_id: Mapped[int] = mapped_column(
+        ForeignKey("saved_search.id"), nullable=False, index=True
+    )
+    
+    # Relationships
+    property: Mapped["Property"] = relationship(back_populates="visibility_history")
+    crawl_session: Mapped["CrawlSession"] = relationship(
+        back_populates="visibility_events"
+    )
+    saved_search: Mapped["SavedSearch"] = relationship(
+        back_populates="visibility_events"
+    )
+```
+
+**Indexes**:
+- `(property_id, timestamp)` - For property history queries
+- `(crawl_session_id)` - For session reports
+- `(saved_search_id, timestamp)` - For search-specific history
+
+---
+
+### 6. PropertyChange
+
+Tracks changes to any property attribute (not just price).
+
+```python
+class PropertyChange(Base):
+    __tablename__ = "property_change"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # What changed
+    attribute_name: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # "title", "size_m2", "bedrooms", "floor", "has_elevator", "description"
+    
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Change type: created, updated
+    change_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="updated"
+    )
+    
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+    
+    # Foreign keys
+    property_id: Mapped[int] = mapped_column(
+        ForeignKey("property.id"), nullable=False, index=True
+    )
+    crawl_session_id: Mapped[int] = mapped_column(
+        ForeignKey("crawl_session.id"), nullable=False, index=True
+    )
+    
+    # Relationships
+    property: Mapped["Property"] = relationship(back_populates="attribute_changes")
+    crawl_session: Mapped["CrawlSession"] = relationship(
+        back_populates="attribute_changes"
+    )
+```
+
+**Trackable Attributes**:
+- `title` - Property title
+- `size_m2` - Square meters
+- `bedrooms` - Number of bedrooms
+- `floor` - Floor information
+- `has_elevator` - Elevator flag
+- `location` - Location string
+- `description` - Property description
+- `image_url` - Primary image
+
+---
+
+## Entity Relationships
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  CrawlSession    │<───>│     Property     │<────│  EmailSource     │
+├──────────────────┤     ├──────────────────┤     ├──────────────────┤
+│ started_at       │     │ idealista_id     │     │ (existing)       │
+│ status           │     │ title            │     └──────────────────┘
+│ total_properties │     │ current_price    │
+└────────┬─────────┘     │ status (NEW)     │     ┌──────────────────┐
+         │               │ first_seen_at    │<────│ PriceHistory     │
+         │               │ last_seen_at     │     │ (existing)       │
+         v               └────────┬─────────┘     └──────────────────┘
+┌──────────────────┐             │
+│ PropertyVisibility│            │                ┌──────────────────┐
+├──────────────────┤             └───────────────>│ PropertyChange   │
+│ event_type       │                              │ (NEW)            │
+│ timestamp        │                              ├──────────────────┤
+│ page_number      │                              │ attribute_name   │
+└────────┬─────────┘                              │ old/new_value    │
+         │                                        └──────────────────┘
+         v
+┌──────────────────┐
+│  SavedSearch     │
+├──────────────────┤
+│ external_search_id
+│ name             │
+│ url_path         │
+└──────────────────┘
+```
+
+---
+
+## Status Logic
+
+### Property Status Transitions
+
+| Current Status | Event | New Status | Condition |
+|----------------|-------|------------|-----------|
+| `active` | Not seen in search | `missing` | Not found in any saved search during crawl |
+| `missing` | Seen again | `active` | Found in any saved search |
+| `missing` | 30 days elapsed | `sold` | `missing_since` > 30 days ago |
+| `sold` | Seen again | `active` | Found in any saved search (reactivated) |
+
+### Missing Property Detection Algorithm
+
+```python
+def detect_missing_properties(search_id: int, session_id: int, current_property_ids: Set[int]):
+    """Mark properties as missing after a search crawl."""
+    
+    # Get properties previously seen in this search
+    previous_properties = (
+        db.query(PropertyVisibility.property_id)
+        .filter(PropertyVisibility.saved_search_id == search_id)
+        .filter(PropertyVisibility.event_type == "seen")
+        .distinct()
+        .all()
+    )
+    previous_ids = {p[0] for p in previous_properties}
+    
+    # Find missing properties
+    missing_ids = previous_ids - current_property_ids
+    
+    for prop_id in missing_ids:
+        # Create visibility event
+        visibility = PropertyVisibility(
+            event_type="missing",
+            property_id=prop_id,
+            crawl_session_id=session_id,
+            saved_search_id=search_id,
+        )
+        db.add(visibility)
         
-        # Check if missing for > 30 days
-        if days_since_last_seen(prop) > 30:
-            prop.status = 'sold'
+        # Check if property exists in ANY other search
+        other_searches = (
+            db.query(PropertyVisibility)
+            .filter(PropertyVisibility.property_id == prop_id)
+            .filter(PropertyVisibility.saved_search_id != search_id)
+            .filter(PropertyVisibility.event_type == "seen")
+            .filter(
+                PropertyVisibility.timestamp > (
+                    datetime.utcnow() - timedelta(days=30)
+                )
+            )
+            .first()
+        )
+        
+        if not other_searches:
+            # Mark as missing globally
+            prop = db.query(Property).get(prop_id)
+            if prop.status == "active":
+                prop.status = "missing"
+                prop.missing_since = datetime.utcnow()
+        
+        # Check for sold status (missing > 30 days)
+        if prop.missing_since and (datetime.utcnow() - prop.missing_since).days > 30:
+            prop.status = "sold"
+    
+    db.commit()
 ```
 
 ---
 
-## Indexes
+## Change Detection
 
-### MongoDB Indexes (Recommended)
+### Batch Processing Logic
 
-```javascript
-// For fast lookups by external ID
-db.properties.createIndex({ external_id: 1 }, { unique: true })
-
-// For status queries
-db.properties.createIndex({ status: 1 })
-
-// For missing property detection
-db.properties.createIndex({ current_search_ids: 1, last_seen_at: 1 })
-
-// For history lookups
-db.property_history.createIndex({ property_id: 1, timestamp: -1 })
-db.property_history.createIndex({ crawl_session_id: 1 })
-
-// For change tracking
-db.property_changes.createIndex({ property_id: 1, timestamp: -1 })
-
-// For session queries
-db.crawl_sessions.createIndex({ status: 1 })
-db.crawl_sessions.createIndex({ started_at: -1 })
-
-// For search lookups
-db.saved_searches.createIndex({ external_search_id: 1 }, { unique: true })
+```python
+def process_property_batch(properties_data: List[dict], session_id: int, search_id: int):
+    """Process a batch of properties from the extension."""
+    
+    for prop_data in properties_data:
+        # Check if property exists
+        existing = (
+            db.query(Property)
+            .filter(Property.idealista_id == prop_data["external_id"])
+            .first()
+        )
+        
+        if not existing:
+            # Create new property
+            prop = Property(
+                idealista_id=prop_data["external_id"],
+                title=prop_data["title"],
+                location=prop_data["location"],
+                original_price=prop_data["price"],
+                current_price=prop_data["price"],
+                size_m2=prop_data.get("square_meters"),
+                bedrooms=prop_data.get("bedrooms"),
+                floor=parse_floor(prop_data.get("floor_info")),
+                has_elevator=parse_elevator(prop_data.get("floor_info")),
+                property_url=prop_data["url"],
+                image_url=prop_data["photos"][0] if prop_data.get("photos") else None,
+                first_seen_at=datetime.utcnow(),
+                last_seen_at=datetime.utcnow(),
+                status="active",
+            )
+            db.add(prop)
+            db.flush()  # Get prop.id
+            
+            # Record all attributes as "created"
+            for attr, value in prop_data.items():
+                if attr in TRACKABLE_ATTRIBUTES and value:
+                    change = PropertyChange(
+                        property_id=prop.id,
+                        crawl_session_id=session_id,
+                        attribute_name=attr,
+                        old_value=None,
+                        new_value=str(value),
+                        change_type="created",
+                    )
+                    db.add(change)
+        
+        else:
+            # Update existing property
+            existing.last_seen_at = datetime.utcnow()
+            
+            if existing.status in ("missing", "sold"):
+                # Reactivated
+                existing.status = "active"
+                existing.missing_since = None
+            
+            # Check for changes
+            changes = detect_changes(existing, prop_data)
+            for attr, old_val, new_val in changes:
+                # Update property
+                setattr(existing, ATTR_MAP[attr], new_val)
+                
+                # Record change
+                change = PropertyChange(
+                    property_id=existing.id,
+                    crawl_session_id=session_id,
+                    attribute_name=attr,
+                    old_value=str(old_val) if old_val else None,
+                    new_value=str(new_val),
+                    change_type="updated",
+                )
+                db.add(change)
+                
+                # Also record in PriceHistory if it's a price change
+                if attr == "price" and old_val != new_val:
+                    price_hist = PriceHistory(
+                        property_id=existing.id,
+                        old_price=old_val,
+                        new_price=new_val,
+                        change_type="update" if new_val < old_val else "increase",
+                        email_id=None,  # From extension, not email
+                    )
+                    db.add(price_hist)
+                    
+                    # Update price drop percentage
+                    if old_val > 0:
+                        existing.price_drop_percentage = (
+                            (old_val - new_val) / old_val * 100
+                        )
+        
+        # Record visibility event
+        visibility = PropertyVisibility(
+            event_type="seen",
+            property_id=prop.id if not existing else existing.id,
+            crawl_session_id=session_id,
+            saved_search_id=search_id,
+            page_number=prop_data.get("page"),
+        )
+        db.add(visibility)
+    
+    db.commit()
 ```
 
 ---
 
-## Schema Migration Notes
+## Database Migration
 
-### From Previous Version
+### Alembic Migration Script
 
-1. **Existing Property Collection**: Add `current_search_ids` array field
-2. **New Collections**: Create `property_history` and `property_changes`
-3. **Backfill**: Create initial `PropertyHistory` entries for all existing properties with `event_type='seen'`
+```python
+"""Add extension crawler models
 
-### Data Retention
+Revision ID: xxx
+Create Date: 2026-05-10
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import sqlite
 
-- PropertyHistory: Keep indefinitely (for complete audit trail)
-- PropertyChange: Keep indefinitely (for price tracking history)
-- CrawlSession: Keep indefinitely (session metadata is small)
-- Consider archiving old sessions after 2 years if storage becomes concern
+# revision identifiers
+revision = 'xxx'
+down_revision = 'previous_revision'
+
+
+def upgrade():
+    # Create crawl_session table
+    op.create_table(
+        'crawl_session',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('started_at', sa.DateTime(), nullable=False),
+        sa.Column('ended_at', sa.DateTime(), nullable=True),
+        sa.Column('status', sa.String(20), nullable=False, default='running'),
+        sa.Column('server_url', sa.String(500), nullable=False),
+        sa.Column('human_like_enabled', sa.Boolean(), default=True),
+        sa.Column('extension_version', sa.String(20), nullable=False),
+        sa.Column('total_properties', sa.Integer(), default=0),
+        sa.Column('pages_processed', sa.Integer(), default=0),
+        sa.Column('searches_crawled', sa.Integer(), default=0),
+        sa.Column('errors_count', sa.Integer(), default=0),
+        sa.Column('created_at', sa.DateTime(), default=sa.func.now()),
+        sa.PrimaryKeyConstraint('id')
+    )
+    
+    # Create saved_search table
+    op.create_table(
+        'saved_search',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('external_search_id', sa.String(50), nullable=False),
+        sa.Column('name', sa.String(200), nullable=False),
+        sa.Column('url_path', sa.String(500), nullable=False),
+        sa.Column('full_url', sa.String(500), nullable=False),
+        sa.Column('description', sa.String(500), nullable=True),
+        sa.Column('result_count', sa.Integer(), nullable=True),
+        sa.Column('is_active', sa.Boolean(), default=True),
+        sa.Column('crawl_enabled', sa.Boolean(), default=False),
+        sa.Column('created_at', sa.DateTime(), default=sa.func.now()),
+        sa.Column('last_crawled_at', sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('external_search_id')
+    )
+    op.create_index('ix_saved_search_external_id', 'saved_search', ['external_search_id'])
+    
+    # Create crawl_session_property association table
+    op.create_table(
+        'crawl_session_property',
+        sa.Column('crawl_session_id', sa.Integer(), nullable=False),
+        sa.Column('property_id', sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(['crawl_session_id'], ['crawl_session.id']),
+        sa.ForeignKeyConstraint(['property_id'], ['property.id']),
+        sa.PrimaryKeyConstraint('crawl_session_id', 'property_id')
+    )
+    
+    # Create property_visibility table
+    op.create_table(
+        'property_visibility',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('event_type', sa.String(20), nullable=False),
+        sa.Column('timestamp', sa.DateTime(), default=sa.func.now()),
+        sa.Column('page_number', sa.Integer(), nullable=True),
+        sa.Column('property_id', sa.Integer(), nullable=False),
+        sa.Column('crawl_session_id', sa.Integer(), nullable=False),
+        sa.Column('saved_search_id', sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(['property_id'], ['property.id']),
+        sa.ForeignKeyConstraint(['crawl_session_id'], ['crawl_session.id']),
+        sa.ForeignKeyConstraint(['saved_search_id'], ['saved_search.id']),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_visibility_property', 'property_visibility', ['property_id', 'timestamp'])
+    op.create_index('ix_visibility_session', 'property_visibility', ['crawl_session_id'])
+    op.create_index('ix_visibility_search', 'property_visibility', ['saved_search_id', 'timestamp'])
+    
+    # Create property_change table
+    op.create_table(
+        'property_change',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('attribute_name', sa.String(50), nullable=False),
+        sa.Column('old_value', sa.Text(), nullable=True),
+        sa.Column('new_value', sa.Text(), nullable=False),
+        sa.Column('change_type', sa.String(20), default='updated'),
+        sa.Column('timestamp', sa.DateTime(), default=sa.func.now()),
+        sa.Column('property_id', sa.Integer(), nullable=False),
+        sa.Column('crawl_session_id', sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(['property_id'], ['property.id']),
+        sa.ForeignKeyConstraint(['crawl_session_id'], ['crawl_session.id']),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_change_property', 'property_change', ['property_id', 'timestamp'])
+    op.create_index('ix_change_session', 'property_change', ['crawl_session_id'])
+    
+    # Modify existing property table
+    op.add_column('property', sa.Column('status', sa.String(20), default='active'))
+    op.add_column('property', sa.Column('first_seen_at', sa.DateTime(), nullable=True))
+    op.add_column('property', sa.Column('last_seen_at', sa.DateTime(), nullable=True))
+    op.add_column('property', sa.Column('missing_since', sa.DateTime(), nullable=True))
+    
+    # Backfill first_seen_at and last_seen_at from created_at
+    op.execute("UPDATE property SET first_seen_at = created_at, last_seen_at = updated_at, status = 'active'")
+    
+    # Make first_seen_at and last_seen_at non-nullable after backfill
+    op.alter_column('property', 'first_seen_at', nullable=False)
+    op.alter_column('property', 'last_seen_at', nullable=False)
+
+
+def downgrade():
+    op.drop_table('property_change')
+    op.drop_table('property_visibility')
+    op.drop_table('crawl_session_property')
+    op.drop_table('saved_search')
+    op.drop_table('crawl_session')
+    op.drop_column('property', 'status')
+    op.drop_column('property', 'first_seen_at')
+    op.drop_column('property', 'last_seen_at')
+    op.drop_column('property', 'missing_since')
+```
+
+---
+
+## Indexes Summary
+
+| Table | Index | Purpose |
+|-------|-------|---------|
+| Property | `idealista_id` (unique) | Fast lookup by external ID |
+| Property | `status` | Filter by status (active/missing/sold) |
+| Property | `last_seen_at` | Find stale properties |
+| SavedSearch | `external_search_id` (unique) | Fast lookup by Idealista ID |
+| PropertyVisibility | `(property_id, timestamp)` | Property history queries |
+| PropertyVisibility | `crawl_session_id` | Session reports |
+| PropertyVisibility | `(saved_search_id, timestamp)` | Search-specific history |
+| PropertyChange | `(property_id, timestamp)` | Change history queries |
+| PropertyChange | `crawl_session_id` | Session change reports |
+| CrawlSession | `status` | Find active sessions |
+
+---
+
+## Queries
+
+### Get Property with Complete History
+
+```python
+property = (
+    db.query(Property)
+    .filter(Property.idealista_id == "109363171")
+    .options(
+        joinedload(Property.price_history),
+        joinedload(Property.visibility_history).joinedload(PropertyVisibility.saved_search),
+        joinedload(Property.attribute_changes),
+    )
+    .first()
+)
+```
+
+### Find Properties Missing for >30 Days
+
+```python
+threshold = datetime.utcnow() - timedelta(days=30)
+missing_properties = (
+    db.query(Property)
+    .filter(Property.status == "missing")
+    .filter(Property.missing_since < threshold)
+    .all()
+)
+```
+
+### Get Crawl Session Report
+
+```python
+session = (
+    db.query(CrawlSession)
+    .filter(CrawlSession.id == session_id)
+    .options(
+        joinedload(CrawlSession.visibility_events),
+        joinedload(CrawlSession.attribute_changes),
+    )
+    .first()
+)
+```

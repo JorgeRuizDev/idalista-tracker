@@ -7,23 +7,28 @@
 
 ## Summary
 
-Build a Chrome extension that crawls property listings from Idealista saved searches. The extension will:
+Build a Chrome extension that crawls property listings from Idealista saved searches and feeds them into the existing FastAPI backend. The extension will:
 1. Detect all saved searches from the user's Idealista account
 2. Allow users to select which searches to crawl
 3. Systematically navigate through search results pages
 4. Extract property data (ID, title, price, location, size, etc.)
-5. Send data in batches to a configured API server
+5. Send data in batches to the configured API server
 6. Implement human-like behavior (random delays, fake scrolling) to avoid detection
 
-The API backend will be extended with batch ingestion endpoints and property history tracking (change detection, missing property identification, sold property flagging).
+The existing FastAPI backend will be extended with:
+- Batch ingestion endpoint
+- Property history tracking (change detection)
+- Missing property identification
+- Sold property flagging (after 30 days missing)
+- Saved search management
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.3+ (extension), Python 3.11+ (backend)  
 **Primary Dependencies**: 
 - Extension: Chrome Extension Manifest V3, Vite (build), vanilla TypeScript
-- Backend: FastAPI (existing), MongoDB (existing)
-**Storage**: Chrome Storage API (extension state), MongoDB (properties, history)
+- Backend: FastAPI (existing), SQLAlchemy with SQLite (existing)
+**Storage**: Chrome Storage API (extension state), SQLite (properties, history)
 **Testing**: Manual testing in Chrome, pytest for backend (existing)
 **Target Platform**: Chrome v88+ (Manifest V3 support)
 **Project Type**: Browser extension + web service API
@@ -52,11 +57,13 @@ The API backend will be extended with batch ingestion endpoints and property his
 |-----------|-------|--------|-------|
 | **I. Code Quality** | TypeScript strict mode enabled | ✅ PASS | Strict typing required |
 | **I. Code Quality** | ESLint + Prettier configured | ✅ PASS | Standard toolchain |
+| **I. Code Quality** | Python code follows existing patterns | ✅ PASS | Extend existing service layer |
 | **II. Testing Standards** | Manual testing plan defined | ✅ PASS | See quickstart.md |
 | **II. Testing Standards** | Backend tests for API | ✅ PASS | Extend existing pytest |
 | **III. UX Consistency** | Extension follows Chrome UI patterns | ✅ PASS | Standard popup/options |
 | **IV. Performance** | Human-like delays included | ✅ PASS | Configurable limits |
 | **V. Simplicity** | No unnecessary dependencies | ✅ PASS | Vanilla TS, no frameworks |
+| **V. Simplicity** | Reuse existing backend | ✅ PASS | Extend don't replace |
 
 ### Complexity Assessment
 
@@ -65,7 +72,7 @@ The API backend will be extended with batch ingestion endpoints and property his
 | Number of Projects | 2 (existing Python backend + new extension) | Extension required for DOM access |
 | Code Complexity | Medium | DOM extraction, state management, API communication |
 | External Dependencies | Minimal | Chrome APIs, standard build tools |
-| Data Model Changes | Medium | Add history tracking, change detection |
+| Data Model Changes | Medium | Add 4 new models, modify Property model |
 
 **Constitution Check**: ✅ PASSED - All principles respected, no unjustified complexity.
 
@@ -126,16 +133,24 @@ idalista-tracker/
 │   ├── api/
 │   │   ├── routes/
 │   │   │   ├── __init__.py
-│   │   │   └── properties.py     # MODIFY: Add batch endpoint
-│   │   └── main.py               # MODIFY: Register new routes
+│   │   │   ├── crawl.py          # MODIFY: Add session endpoints
+│   │   │   ├── properties.py     # MODIFY: Add batch endpoint
+│   │   │   └── searches.py       # NEW: Saved search management
+│   │   ├── schemas.py            # MODIFY: Add new schemas
+│   │   └── dependencies.py       # EXISTING: DB session dependency
+│   │
 │   ├── services/
 │   │   ├── property_service.py   # MODIFY: Add batch processing
 │   │   └── crawl_service.py      # NEW: Crawl session management
-│   └── models/
-│       ├── property.py           # MODIFY: Add status, search_ids
-│       ├── property_history.py   # NEW: History tracking
-│       ├── property_change.py    # NEW: Change tracking
-│       └── crawl_session.py      # NEW: Session tracking
+│   │
+│   ├── database/
+│   │   ├── models.py             # MODIFY: Add new models
+│   │   └── init.py               # MODIFY: Add new tables
+│   │
+│   ├── crawler/                  # EXISTING: Gmail crawler
+│   │   └── (keep existing)
+│   │
+│   └── main.py                   # MODIFY: Register new routes
 │
 └── ... (other existing files)
 ```
@@ -145,16 +160,50 @@ idalista-tracker/
 - Backend changes extend existing Python codebase
 - Documentation follows spec kit pattern in `specs/003-chrome-extension-crawler/`
 - The extension is isolated from the Python backend to allow independent build/deployment
+- Database uses existing SQLAlchemy/SQLite setup (not MongoDB)
 
-## Complexity Tracking
+## Backend Modifications Required
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+### 1. Database Models (`src/database/models.py`)
 
-No violations identified. The two-project structure (Python backend + TypeScript extension) is justified because:
-1. Chrome extensions cannot be built in Python (must use JS/TS)
-2. The extension needs to access the DOM, which requires browser extension APIs
-3. The backend already exists and handles data persistence
-4. This is the minimal viable architecture for the feature
+**Modify Existing**:
+- `Property` - Add `status`, `first_seen_at`, `last_seen_at`, `missing_since`
+
+**Add New**:
+- `CrawlSession` - Track crawl sessions
+- `SavedSearch` - Store Idealista saved searches
+- `PropertyVisibility` - Track seen/missing events
+- `PropertyChange` - Track all attribute changes (not just price)
+- `crawl_session_property` - Association table for many-to-many
+
+See [data-model.md](data-model.md) for full model definitions.
+
+### 2. API Routes
+
+**Modify**:
+- `src/api/routes/properties.py` - Add `POST /properties/batch`
+- `src/api/routes/crawl.py` - Add crawl session endpoints
+
+**Create**:
+- `src/api/routes/searches.py` - Saved search management
+
+### 3. Services
+
+**Modify**:
+- `src/services/property_service.py` - Add batch processing logic
+
+**Create**:
+- `src/services/crawl_service.py` - Crawl session management
+
+### 4. Database Migration
+
+Create Alembic migration to:
+1. Create new tables (CrawlSession, SavedSearch, PropertyVisibility, PropertyChange)
+2. Create association table
+3. Add columns to Property table
+4. Backfill data where needed
+
+See [data-model.md](data-model.md) for migration script.
 
 ## Implementation Phases
 
@@ -171,8 +220,8 @@ Key findings:
 ### Phase 1: Design (Complete)
 
 **Deliverables**:
-- [data-model.md](data-model.md) - Entity definitions with relationships
-- [contracts/api.md](contracts/api.md) - API contracts for batch ingestion
+- [data-model.md](data-model.md) - SQLAlchemy model definitions with migrations
+- [contracts/api.md](contracts/api.md) - API contracts (no auth required)
 - [quickstart.md](quickstart.md) - Development environment setup
 
 Key design decisions:
@@ -180,7 +229,8 @@ Key design decisions:
 2. **Manifest V3** with service worker background script
 3. **Chrome Storage API** for state persistence
 4. **Batch API** for efficient property ingestion
-5. **Human-like behavior** with configurable delays
+5. **Existing FastAPI/SQLite backend** extended with new models
+6. **No authentication** (local/self-hosted use)
 
 ### Phase 2: Tasks (Pending)
 
@@ -191,8 +241,9 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 4. Popup UI (search selection, crawl control, progress)
 5. Options page (configuration)
 6. Backend API (batch endpoint, history tracking)
-7. Data models (PropertyHistory, PropertyChange, CrawlSession)
-8. Integration testing
+7. Database models (CrawlSession, SavedSearch, PropertyVisibility, PropertyChange)
+8. Database migration (Alembic)
+9. Integration testing
 
 ## Key Technical Decisions
 
@@ -206,7 +257,17 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 - Strict mode prevents runtime errors
 - Can share types with future TypeScript frontend
 
-### 2. DOM Extraction Strategy
+### 2. Backend Architecture
+
+**Decision**: Extend existing FastAPI/SQLAlchemy backend
+
+**Rationale**:
+- Backend already exists and works
+- SQLite is sufficient for single-user use
+- SQLAlchemy migrations handle schema changes
+- No need for separate database or infrastructure
+
+### 3. DOM Extraction Strategy
 
 **Decision**: Content scripts with specific CSS selectors
 
@@ -220,7 +281,7 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 - Data attributes (`data-searchid`, `data-element-id`) provide reliable IDs
 - Abstraction layer can adapt if structure changes
 
-### 3. State Management
+### 4. State Management
 
 **Decision**: Chrome Storage API with structured state object
 
@@ -230,7 +291,7 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 - Structured storage for complex crawl state
 - No external dependencies
 
-### 4. Human-Like Behavior
+### 5. Human-Like Behavior
 
 **Decision**: Configurable random delays and scroll simulation
 
@@ -241,16 +302,36 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 
 **Rationale**: Reduces detection risk while maintaining crawl efficiency
 
-### 5. API Design
+### 6. API Design
 
 **Decision**: RESTful batch endpoint with comprehensive response
 
 **Endpoint**: `POST /api/v1/properties/batch`
 
+**Authentication**: None required (local/self-hosted)
+
 **Rationale**:
 - Single call per page reduces network overhead
 - Detailed response shows created/updated counts
 - Error handling per property allows partial success
+- No auth simplifies local deployment
+
+### 7. Data Model Design
+
+**Decision**: Extend existing models with history tracking
+
+**Key Additions**:
+- `Property.status` - active/missing/sold
+- `PropertyVisibility` - seen/missing events
+- `PropertyChange` - all attribute changes
+- `CrawlSession` - track crawl operations
+- `SavedSearch` - manage search configurations
+
+**Rationale**:
+- Maintains compatibility with existing Gmail crawler
+- Provides complete audit trail
+- Enables sold property detection
+- Tracks all changes, not just price
 
 ## Risk Mitigation
 
@@ -261,6 +342,7 @@ Will be generated by `/speckit.tasks` command. Expected task categories:
 | Browser crashes | State persistence, resume capability |
 | Large searches | Session persistence, progress tracking |
 | Extension store rejection | Follow CWS guidelines, minimal permissions |
+| Database schema conflicts | Alembic migrations, backward compatibility |
 
 ## Success Criteria Verification
 
@@ -278,3 +360,36 @@ From spec.md, verification approach:
 | SC-008: History timeline | UI inspection, database verification |
 | SC-009: No duplicates | Constraint tests, duplicate batch tests |
 | SC-010: Rate limit handling | Mock 429 responses, verify pause/resume |
+
+## Development Notes
+
+### Database Migration Flow
+
+1. Create Alembic migration script
+2. Run migration: `alembic upgrade head`
+3. Verify new tables/columns created
+4. Test with existing data (backward compatibility)
+
+### Backend Development
+
+1. Add new models to `src/database/models.py`
+2. Create migration: `alembic revision --autogenerate -m "add extension crawler models"`
+3. Add batch endpoint to `src/api/routes/properties.py`
+4. Add crawl service in `src/services/crawl_service.py`
+5. Test endpoints with curl/httpie
+
+### Extension Development
+
+1. Set up Node.js project in `extension/`
+2. Build with Vite: `npm run dev`
+3. Load in Chrome: `chrome://extensions/` → Load Unpacked
+4. Test against running backend
+
+## Next Steps
+
+1. Run `/speckit.tasks` to generate implementation tasks
+2. Set up extension project structure
+3. Create database migration
+4. Implement batch API endpoint
+5. Build extension content scripts
+6. Test end-to-end flow
