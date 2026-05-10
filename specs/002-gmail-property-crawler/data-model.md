@@ -23,6 +23,7 @@
                         │    floor         │              │
                         │    has_elevator  │              │
                         │    property_url  │              │
+                        │    image_url     │              │
                         │    created_at    │              │
                         │    updated_at    │              │
                         │    is_active     │              │
@@ -53,6 +54,7 @@ Represents a real estate listing discovered from idealista emails.
 | floor | String | Nullable | Floor description (e.g., "5ª planta") |
 | has_elevator | Boolean | Nullable | Whether property has elevator access |
 | property_url | String | Not null | Full idealista URL |
+| image_url | String | Nullable | Property main image URL from idealista CDN |
 | email_id | Integer | FK → EmailSource | Source email reference |
 | created_at | DateTime | Not null, Index | When first discovered |
 | updated_at | DateTime | Not null | When last modified |
@@ -168,6 +170,7 @@ bedrooms: Mapped[Optional[int]]
 floor: Mapped[Optional[str]] = mapped_column(String(50))
 has_elevator: Mapped[Optional[bool]]
 property_url: Mapped[str] = mapped_column(String(500))
+image_url: Mapped[Optional[str]] = mapped_column(String(500))
 email_id: Mapped[int] = mapped_column(ForeignKey("email_source.id"))
 created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

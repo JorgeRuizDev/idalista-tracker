@@ -1,7 +1,7 @@
 # Quick Start Guide
 
 **Feature**: Gmail Property Crawler  
-**Prerequisites**: Python 3.11+, Gmail account with App Password
+**Prerequisites**: Python 3.11+, [UV](https://docs.astral.sh/uv/), Gmail account with App Password
 
 ## Installation
 
@@ -11,18 +11,14 @@
 # Navigate to project directory
 cd idalista-tracker
 
-# Create virtual environment
-python -m venv venv
+# Install dependencies using UV
+uv sync
 
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+# For development (includes test dependencies)
+uv sync --extra dev
 ```
+
+**Note**: UV automatically manages the virtual environment. No need to manually activate it.
 
 ### 2. Configure Environment
 
@@ -53,7 +49,7 @@ API_PORT=8000
 ### 3. Initialize Database
 
 ```bash
-python -m src.database.init
+uv run src/database/init.py
 ```
 
 This creates the SQLite database with all required tables.
@@ -61,11 +57,11 @@ This creates the SQLite database with all required tables.
 ### 4. Run the Application
 
 ```bash
-# Start the API server (includes scheduled crawler)
-python -m src.main
+# Option 1: Run main.py directly (recommended)
+uv run src/main.py
 
-# Or use uvicorn directly
-uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+# Option 2: Run with uvicorn explicitly
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The API will be available at `http://localhost:8000`
@@ -146,7 +142,7 @@ idalista-tracker/
 │   ├── test_crawler.py
 │   └── test_api.py
 ├── .env                        # Environment variables
-├── requirements.txt
+├── pyproject.toml              # Project dependencies (UV)
 └── README.md
 ```
 
@@ -156,13 +152,13 @@ idalista-tracker/
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/test_parser.py -v
+uv run pytest tests/test_parser.py -v
 ```
 
 ### Database Migrations (Future)
@@ -171,24 +167,49 @@ When schema changes are needed:
 
 ```bash
 # Generate migration
-alembic revision --autogenerate -m "Description"
+uv run alembic revision --autogenerate -m "Description"
 
 # Apply migration
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### Code Quality
 
 ```bash
 # Format code
-black src tests
+uv run black src tests
 
 # Lint
-flake8 src tests
+uv run flake8 src tests
 
 # Type check
-mypy src
+uv run mypy src
 ```
+
+### Adding Dependencies
+
+```bash
+# Add production dependency
+uv add <package>
+
+# Add development dependency
+uv add --dev <package>
+
+# Update lock file
+uv lock
+```
+
+## UV Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `uv sync` | Install dependencies from lock file |
+| `uv sync --extra dev` | Install with dev dependencies |
+| `uv run <script>` | Run a script with dependencies |
+| `uv add <package>` | Add a dependency to pyproject.toml |
+| `uv add --dev <package>` | Add a dev dependency |
+| `uv lock` | Update the uv.lock file |
+| `uv venv` | Create virtual environment |
 
 ## Troubleshooting
 

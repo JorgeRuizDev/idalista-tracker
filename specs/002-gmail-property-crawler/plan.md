@@ -19,6 +19,7 @@ Key technical decisions:
 ## Technical Context
 
 **Language/Version**: Python 3.11+  
+**Package Manager**: [UV](https://docs.astral.sh/uv/) - Fast Python package installer and resolver  
 **Primary Dependencies**: FastAPI, SQLAlchemy, APScheduler, Pydantic, pydantic-settings  
 **Storage**: SQLite (single-file database)  
 **Testing**: pytest with pytest-asyncio  
@@ -200,30 +201,45 @@ Ready for `/speckit.tasks` to generate implementation tasks based on:
 
 ## Dependencies
 
+This project uses [UV](https://docs.astral.sh/uv/) for dependency management.
+
 ### Production
 
+All production dependencies are defined in `pyproject.toml`:
+
+```toml
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.12.0",
+    "apscheduler>=3.10.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "python-multipart>=0.0.6",
+]
 ```
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-sqlalchemy>=2.0.0
-alembic>=1.12.0
-apscheduler>=3.10.0
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
-python-multipart>=0.0.6
-```
+
+Install with: `uv sync`
 
 ### Development
 
+Development dependencies are defined as optional extras:
+
+```toml
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "httpx>=0.25.0",
+]
 ```
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-black>=23.0.0
-flake8>=6.1.0
-mypy>=1.7.0
-httpx>=0.25.0  # For API testing
-```
+
+Install with: `uv sync --extra dev`
 
 ## Configuration
 
@@ -266,20 +282,22 @@ LOG_LEVEL=INFO
 ### Local Development
 
 ```bash
-# 1. Setup
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+# 1. Setup (install dependencies)
+uv sync
 
 # 2. Configure
 cp .env.example .env
 # Edit .env with your credentials
 
 # 3. Initialize
-python -m src.database.init
+uv run src/database/init.py
 
 # 4. Run
-python -m src.main
+# Option 1: Run main.py directly (recommended)
+uv run src/main.py
+
+# Option 2: Run with uvicorn explicitly
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Production (Future)

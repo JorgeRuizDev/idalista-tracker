@@ -1,0 +1,167 @@
+# Sample Idealista Email Content from REAL Emails
+# These samples are based on actual emails fetched from Gmail IMAP
+# Format: HTML converted to text with metadata sections
+
+## Example 1: Single New Property (no price drop)
+# Subject: "¡Nuevo piso en tu búsqueda: Burgos!"
+
+From: noresponder@idealista.com
+Subject: =?UTF-8?Q?=C2=A1Nuevo_piso_en_tu_b=C3=BAsqueda:_Burgos!?=
+
+Alertas
+96
+Piso en Calle Procurador, San Pedro de la Fuente, Burgos
+96.554 €
+74 m² 2 hab. 1ª planta
+Ver 3 fotos
+Contactar
+Hola, Jorge,
+1 anuncio recién publicado con tus criterios
+
+[URLS_FOUND]
+https://www.idealista.com/inmueble/107255773/
+
+[IMAGES_FOUND]
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/a0/c5/cb/1370602033.jpg
+
+---
+
+## Example 2: Property with Price Drop
+# Subject: "¡Bajada de precio en tu búsqueda: Burgos!"
+
+From: noresponder@idealista.com
+Subject: =?UTF-8?Q?=C2=A1Bajada_de_precio_en_tu_b=C3=BAsqueda:_Burgos!?=
+
+Alertas
+96
+Piso en Calle Federico Martínez Varea, 15, Los Vadillos, Burgos
+El precio de este anuncio ha bajado de 184.900€ a 178.900€
+184.900€ ↓3%
+178.900 €
+52 m² 1 hab. 8ª planta
+Ver 8 fotos
+Contactar
+
+[URLS_FOUND]
+https://www.idealista.com/inmueble/107255780/
+
+[IMAGES_FOUND]
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/b1/d6/e2/1370602044.jpg
+
+---
+
+## Example 3: Ático (Attic/Penthouse)
+# Subject: "¡Nuevo ático en tu búsqueda: Burgos!"
+
+From: noresponder@idealista.com
+Subject: =?UTF-8?Q?=C2=A1Nuevo_=C3=A1tico_en_tu_b=C3=BAsqueda:_Burgos!?=
+
+Alertas
+96
+Ático en Plaza Nueva de Gamonal, Gamonal - San Bruno - G9, Burgos
+155.000 €
+111 m² 4 hab. 8ª planta
+Ver 33 fotos
+Contactar
+
+[URLS_FOUND]
+https://www.idealista.com/inmueble/111420317/
+
+[IMAGES_FOUND]
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/c2/e7/f3/1370602055.jpg
+
+---
+
+## Example 4: Chalet Adosado (Townhouse)
+# Subject: "¡Nuevo chalet adosado en tu búsqueda: Burgos!"
+
+From: noresponder@idealista.com
+Subject: =?UTF-8?Q?=C2=A1Nuevo_chalet_adosado_en_tu_b=C3=BAsqueda:_Burgos!?=
+
+Alertas
+96
+Chalet adosado en Paseo de los Pisones, 100, San Agustín-Parque Europa, Burgos
+280.500 €
+200 m² 4 hab.
+Ver 1 foto
+Contactar
+
+[URLS_FOUND]
+https://www.idealista.com/inmueble/111420318/
+
+[IMAGES_FOUND]
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/d3/f8/g4/1370602066.jpg
+
+---
+
+## Example 5: Daily Summary (Resumen diario)
+# Subject: "Resumen diario de nuevos anuncios"
+
+From: noresponder@idealista.com
+Subject: Resumen diario de nuevos anuncios
+
+Resumen diario de nuevos anuncios
+Te enviamos 8 novedades de tus búsquedas guardadas
+Hola, Jorge,
+
+Piso en Briviesca
+98.000 €
+80 m² 3 hab. 1ª planta
+
+Casa en Villalbilla de Burgos
+175.000 €
+120 m² 3 hab. Planta baja
+
+Estudio en Plaza de España, Burgos
+85.000 €
+35 m² 1 hab. 2ª planta interior
+
+[URLS_FOUND]
+https://www.idealista.com/inmueble/111420319/
+https://www.idealista.com/inmueble/111420320/
+https://www.idealista.com/inmueble/111420321/
+
+[IMAGES_FOUND]
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/e4/g9/h5/1370602077.jpg
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/f5/h0/i6/1370602088.jpg
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/g6/i1/j7/1370602099.jpg
+
+---
+
+## Expected Parsing Results:
+
+### Example 1 (Single New Property):
+- idealista_id: "107255773"
+- title: "Piso en Calle Procurador, San Pedro de la Fuente, Burgos"
+- property_type: "Piso"
+- location: "Calle Procurador, San Pedro de la Fuente, Burgos"
+- original_price: 96554
+- current_price: 96554
+- price_drop_percentage: None
+- size_m2: 74
+- bedrooms: 2
+- floor: "1ª planta"
+- has_elevator: None
+- property_url: "https://www.idealista.com/inmueble/107255773/"
+- image_url: "https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/a0/c5/cb/1370602033.jpg"
+
+### Example 2 (Price Drop):
+- idealista_id: "107255780"
+- title: "Piso en Calle Federico Martínez Varea, 15, Los Vadillos, Burgos"
+- property_type: "Piso"
+- original_price: 184900
+- current_price: 178900
+- price_drop_percentage: 3.0
+- size_m2: 52
+- bedrooms: 1
+- floor: "8ª planta"
+- has_elevator: None
+- image_url: Present
+
+### Example 3 (Ático with Elevator info):
+- idealista_id: "111420317"
+- title: "Ático en Plaza Nueva de Gamonal, Gamonal - San Bruno - G9, Burgos"
+- property_type: "Ático"
+- floor: "8ª planta"
+- has_elevator: None (ático doesn't need elevator info)
+- image_url: Present

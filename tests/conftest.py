@@ -1,63 +1,33 @@
-"""Shared test fixtures for idalista-tracker."""
-
-import os
-import tempfile
-from pathlib import Path
-from unittest import mock
-
+"""pytest fixtures and configuration."""
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.database.models import Base
+
+# Create test database
+TEST_DATABASE_URL = "sqlite:///./test.db"
 
 
-@pytest.fixture
-def clean_env():
-    """Fixture to provide a clean environment without config variables."""
-    # List of environment variables to clear
-    env_vars = [
-        "SERVER_HOST", "SERVER_PORT", "SERVER_RELOAD", "SERVER_WORKERS",
-        "LOG_LEVEL", "LOG_FORMAT", "LOG_JSON_FORMAT", "LOG_OUTPUT", "LOG_FILE_PATH",
-        "IDEALISTA_API_KEY", "IDEALISTA_BASE_URL", "IDEALISTA_TIMEOUT", "IDEALISTA_MAX_RETRIES",
-    ]
-
-    # Save current values
-    saved = {var: os.environ.get(var) for var in env_vars}
-
-    # Clear all
-    for var in env_vars:
-        os.environ.pop(var, None)
-
-    yield
-
-    # Restore values
-    for var, value in saved.items():
-        if value is not None:
-            os.environ[var] = value
-        else:
-            os.environ.pop(var, None)
+@pytest.fixture(scope="session")
+def engine():
+    """Create a test database engine."""
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    Base.metadata.drop_all(bind=engine)
 
 
-@pytest.fixture
-def temp_log_file():
-    """Fixture to provide a temporary log file path."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "test.log"
-        yield str(log_path)
-
-
-@pytest.fixture
-def mock_env_file():
-    """Fixture to create a temporary .env file."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-        f.write("# Test .env file\n")
-        env_path = f.name
-
-    yield env_path
-
-    # Cleanup
-    os.unlink(env_path)
-
-
-@pytest.fixture
-def temp_dir():
-    """Fixture to provide a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
+@pytest.fixture(scope="function")
+def db_session(engine):
+    """Create a new database session for each test."""
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()

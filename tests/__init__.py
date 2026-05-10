@@ -1,1 +1,1 @@
-"""Test package for idalista-tracker."""
+"""Tests package."""

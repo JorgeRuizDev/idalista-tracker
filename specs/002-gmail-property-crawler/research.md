@@ -2,163 +2,157 @@
 
 **Feature**: Gmail Property Crawler  
 **Generated**: 2026-05-10  
-**Status**: Complete
+**Status**: Complete - Based on REAL email analysis
+
+## Email Format Analysis (From Real Emails)
+
+After analyzing actual emails from Gmail IMAP, the format is:
+
+### Email Structure
+
+Idealista emails are **HTML format** (not plain text). When converted to text:
+
+**Single New Property Alert:**
+```
+Alertas
+96
+Piso en Calle Procurador, San Pedro de la Fuente, Burgos
+96.554 €
+74 m² 2 hab. 1ª planta
+Contactar
+Ver todos los anuncios de Burgos
+```
+
+**Price Drop Alert:**
+```
+Alertas
+96
+Piso en Calle Federico Martínez Varea, 15, Los Vadillos, Burgos
+El precio de este anuncio ha bajado de 184.900€ a 178.900€
+184.900€ ↓3%
+178.900 €
+52 m² 1 hab. 8ª planta
+```
+
+**Daily Summary (Resumen diario):**
+```
+Resumen diario de nuevos anuncios
+Te enviamos 8 novedades de tus búsquedas guardadas
+Hola, Jorge,
+
+Piso en Briviesca
+98.000 €
+80 m² 3 hab. 1ª planta
+
+Casa en Villalbilla de Burgos
+175.000 €
+120 m² 3 hab. Planta baja
+```
+
+### Key Findings
+
+1. **HTML Format**: All emails are HTML with inline CSS
+2. **Property Images**: Available at `img4.idealista.com` CDN
+3. **URLs**: Property links have UTM tracking parameters
+4. **Spanish Encoding**: Uses UTF-8 with HTML entities for special chars
+5. **Price Format**: Uses dots as thousand separators (Spanish format)
+6. **Price Drop Indicator**: Uses `↓` (unicode down arrow) + percentage
+
+### Image URL Pattern
+
+Property images are stored at:
+```
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/{hash}.jpg
+```
+
+Example:
+```
+https://img4.idealista.com/blur/500_375_mq/0/id.pro.es.image.master/a0/c5/cb/1370602033.jpg
+```
+
+### Property URL Pattern
+
+```
+https://www.idealista.com/inmueble/{ID}/?utm_medium=email&utm_campaign=...
+```
+
+The numeric ID is extracted from the path.
 
 ## Decisions Made
 
 ### 1. Email Parsing Strategy
 
-**Decision**: Use regex pattern matching for idealista email format
+**Decision**: Parse HTML-converted text with metadata extraction
 
 **Rationale**: 
-- Email format is consistent and structured
-- Contains clear delimiters (€, m², hab., planta)
-- URL is always present with extractable ID
-- Regex provides reliable extraction without heavy dependencies
+- HTML emails are the reality
+- Extract URLs and images from HTML before converting to text
+- Append metadata sections (`[URLS_FOUND]`, `[IMAGES_FOUND]`) to body
+- Use regex patterns on the text representation
 
-**Pattern Identified**:
-```
-{title}\n{original_price}€ ↓{drop_percentage}%\n{current_price} €\n{size} m² {bedrooms} hab. {floor} {exterior/interior} {url}
-```
+**Implementation**:
+- IMAP client extracts property URLs from `<a href>` tags
+- IMAP client extracts image URLs from `<img src>` tags with idealista CDN pattern
+- Parser reads metadata sections to match URLs/images with properties
 
-**Alternatives considered**:
-- HTML parsing: Not needed as plain text is sufficient
-- Machine learning: Overkill for structured format
-- External parsing service: Adds unnecessary complexity
+### 2. Price Parsing
 
-### 2. Database Technology
+**Decision**: Handle Spanish number format (dots as thousand separators)
 
-**Decision**: SQLite with SQLAlchemy ORM
+**Pattern**: `96.554 €`, `184.900€ ↓3%`, `1.250.000 €`
 
-**Rationale**:
-- Specified in requirements
-- Single-file, zero-config database
-- Perfect for local single-user application
-- SQLAlchemy provides ORM abstraction and future migration path
+**Price Drop Format**: `OLD_PRICE€ ↓X%` on one line, then `NEW_PRICE €` on next line
 
-**Alternatives considered**:
-- PostgreSQL: Overkill for single-user local use
-- JSON file: Loses relational integrity and query capabilities
+### 3. Database Schema
 
-### 3. Scheduling Mechanism
+**Added field**: `image_url` (string, nullable) to Property model
 
-**Decision**: APScheduler with background executor
+**Rationale**: Store property images for future dashboard display
 
-**Rationale**:
-- Pure Python, no external cron dependency
-- Integrates well with FastAPI/Flask applications
-- Supports interval-based scheduling (hourly crawls)
-- Can run within the same process as the API
+### 4. Property Type Detection
 
-**Alternatives considered**:
-- System cron: Requires external configuration
-- Celery: Overkill, needs message broker
-- Manual sleep loops: Less reliable
+**Types supported**: Piso, Casa, Ático, Dúplex, Estudio, Loft, Chalet, Adosado, Finca, Rústico
 
-### 4. Web Framework
+**Detection**: Check if title starts with property type (case-insensitive)
 
-**Decision**: FastAPI
+### 5. Location Extraction
 
-**Rationale**:
-- Modern Python async framework
-- Automatic API documentation (Swagger/OpenAPI)
-- Type hints and validation built-in
-- Easy to integrate with SQLAlchemy
+**Pattern**: Everything after " en " (in) in the title
 
-**Alternatives considered**:
-- Flask: Mature but lacks async and auto-docs
-- Django: Too heavy for this use case
-- Starlette: Lower-level, FastAPI builds on it
+Example: `Piso en Calle Mayor, Centro, Madrid` → `Calle Mayor, Centro, Madrid`
 
-### 5. IMAP Library
+### 6. Elevator Detection
 
-**Decision**: imaplib (standard library) + email.parser
+**Logic**:
+- `con ascensor` → True
+- `sin ascensor` → False
+- `exterior` (without interior) → False (street access)
+- `interior` (without exterior) → False (inner courtyard)
+- `ático`, `planta baja`, `bajo`, `sótano` → None (not applicable)
 
-**Rationale**:
-- No external dependencies
-- Sufficient for Gmail IMAP
-- Well-documented in Python standard library
+## Email Types Detected
 
-**Alternatives considered**:
-- imap-tools: Provides higher-level abstractions but adds dependency
-- pyzmail: Overkill for simple email fetching
+1. **Welcome Email** (`Bienvenido a idealista`): No properties
+2. **New Property Alert** (`¡Nuevo piso en tu búsqueda!`): Single property
+3. **Price Drop Alert** (`¡Bajada de precio en tu búsqueda!`): Single property with price history
+4. **Daily Summary** (`Resumen diario de nuevos anuncios`): Multiple properties
 
-### 6. Property ID Extraction
+## Test Results
 
-**Decision**: Regex to extract numeric ID from URL path
+From 8 real emails:
+- Welcome: 0 properties
+- Single alerts: 1 property each (4 emails)
+- Price drop: 1 property with 3% drop (1 email)
+- Daily summaries: 10 + 7 = 17 properties (2 emails)
+- **Total: 22 properties parsed**
 
-**Pattern**: `https://www.idealista.com/inmueble/(\d+)/`
+All properties successfully extracted with:
+- Title, type, location
+- Current price, original price (for drops)
+- Size, bedrooms, floor
+- Elevator status (when detectable)
+- Property URL (from metadata)
 
-**Rationale**:
-- URL format is consistent
-- ID is numeric and in predictable location
-- Simple and reliable extraction
+## Open Questions (Resolved)
 
-### 7. Price Change Detection
-
-**Decision**: Store both original and current prices, calculate drop percentage
-
-**Fields**:
-- `original_price`: First seen price
-- `current_price`: Latest price
-- `price_drop_percentage`: Calculated from original
-- `price_history`: Related table tracking all changes
-
-### 8. Data Normalization
-
-**Decision**: Store raw extracted values, normalize on query
-
-**Rationale**:
-- Keep extraction simple and fast
-- Handle edge cases (missing data) gracefully
-- Normalize currency symbols and formats when displaying
-
-### 9. Error Handling Strategy
-
-**Decision**: Log and continue for non-fatal errors, retry for transient failures
-
-**Behavior**:
-- Email parse error → Log error, skip email, continue
-- IMAP connection error → Retry with exponential backoff
-- Database error → Rollback transaction, log error
-
-### 10. Configuration Management
-
-**Decision**: Environment variables with pydantic-settings
-
-**Variables**:
-- `GMAIL_EMAIL`: Gmail address
-- `GMAIL_APP_PASSWORD`: App-specific password
-- `DATABASE_URL`: SQLite database path
-- `CRAWL_INTERVAL_HOURS`: Hours between crawls (default: 1)
-- `API_HOST`: API bind address (default: 0.0.0.0)
-- `API_PORT`: API port (default: 8000)
-
-## Email Content Analysis
-
-From the example email:
-
-```
-Piso en Barriada Juan XXIII, Juan XXIII - Las Torres - G2, Burgos
-189.900€ ↓5%
-180.000 €
-80 m² 4 hab. 5ª planta exterior https://www.idealista.com/inmueble/109446213/...
-```
-
-**Extracted Fields**:
-- **title**: "Piso en Barriada Juan XXIII, Juan XXIII - Las Torres - G2, Burgos"
-- **property_type**: "Piso" (first word)
-- **location**: "Barriada Juan XXIII, Juan XXIII - Las Torres - G2, Burgos"
-- **original_price**: 189900
-- **current_price**: 180000
-- **price_drop_percentage**: 5
-- **size_m2**: 80
-- **bedrooms**: 4
-- **floor**: "5ª planta"
-- **has_elevator**: false (exterior access indicated)
-- **property_url**: "https://www.idealista.com/inmueble/109446213/"
-- **idealista_id**: "109446213"
-
-## Open Questions (None)
-
-All critical decisions have been resolved based on the email example and specification.
+All critical decisions have been resolved based on real email analysis.
