@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Idalista Property Crawler</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Idalista Crawler</h1>
+      <div class="status-indicators">
+        <span id="server-status" class="status-badge offline" title="Backend Connection">●</span>
+        <span id="status-badge" class="badge">Idle</span>
+      </div>
+    </header>
+
+    <section id="connection-section" class="connection-status">
+      <div class="status-row">
+        <span class="status-label">Backend:</span>
+        <span id="server-status-text" class="status-value">Checking...</span>
+        <button id="test-connection" class="btn btn-small">Test</button>
+      </div>
+      <div id="connection-error" class="error-message hidden"></div>
+    </section>
+
+    <section id="search-section">
+      <h2>Saved Searches</h2>
+      <div id="searches-list" class="searches-list">
+        <p class="loading">Loading searches...</p>
+      </div>
+      <div class="button-group">
+        <button id="refresh-searches" class="btn btn-secondary">Refresh</button>
+        <button id="sync-searches" class="btn btn-primary">Sync from Idealista</button>
+      </div>
+    </section>
+
+    <section id="crawl-section">
+      <h2>Crawl Control</h2>
+      <div id="crawl-status" class="crawl-status">
+        <p>Status: <span id="crawl-state">Idle</span></p>
+        <div id="progress-bar" class="progress-bar hidden">
+          <div class="progress-fill"></div>
+        </div>
+        <p id="progress-text" class="progress-text"></p>
+      </div>
+      <div class="button-group">
+        <button id="start-crawl" class="btn btn-primary" disabled>Start Crawl</button>
+        <button id="pause-crawl" class="btn btn-warning hidden">Pause</button>
+        <button id="resume-crawl" class="btn btn-primary hidden">Resume</button>
+        <button id="stop-crawl" class="btn btn-danger hidden">Stop</button>
+      </div>
+    </section>
+
+    <section id="log-section">
+      <h2>Activity Log <button id="clear-log" class="btn btn-small btn-secondary">Clear</button></h2>
+      <div id="log-window" class="log-window">
+        <div class="log-entry info">Extension loaded. Waiting for backend connection...</div>
+      </div>
+    </section>
+
+    <section id="stats-section">
+      <h2>Session Stats</h2>
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-value" id="stat-searches">0</span>
+          <span class="stat-label">Searches</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-pages">0</span>
+          <span class="stat-label">Pages</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-properties">0</span>
+          <span class="stat-label">Properties</span>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <button id="open-settings" class="btn btn-secondary">Settings</button>
+    </footer>
+  </div>
+
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

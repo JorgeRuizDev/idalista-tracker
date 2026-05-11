@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Idalista Crawler Settings</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Idalista Crawler Settings</h1>
+    </header>
+
+    <main>
+      <form id="config-form">
+        <section>
+          <h2>Server Configuration</h2>
+          <div class="form-group">
+            <label for="server-url">Server URL</label>
+            <input type="url" id="server-url" name="server_url" 
+                   placeholder="http://localhost:8000" required>
+            <p class="help-text">The URL of your Idalista backend API</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>Human-Like Behavior</h2>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="human-like-enabled" name="human_like_enabled" checked>
+              Enable human-like behavior
+            </label>
+            <p class="help-text">Adds random delays and scrolling to avoid detection</p>
+          </div>
+
+          <div class="delay-settings" id="delay-settings">
+            <h3>Page Load Delays (seconds)</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="min-page-delay">Min</label>
+                <input type="number" id="min-page-delay" name="min_page_delay" 
+                       min="1" max="60" value="2" required>
+              </div>
+              <div class="form-group">
+                <label for="max-page-delay">Max</label>
+                <input type="number" id="max-page-delay" name="max_page_delay" 
+                       min="1" max="60" value="8" required>
+              </div>
+            </div>
+
+            <h3>Navigation Delays (seconds)</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="min-navigation-delay">Min</label>
+                <input type="number" id="min-navigation-delay" name="min_navigation_delay" 
+                       min="1" max="120" value="5" required>
+              </div>
+              <div class="form-group">
+                <label for="max-navigation-delay">Max</label>
+                <input type="number" id="max-navigation-delay" name="max_navigation_delay" 
+                       min="1" max="120" value="15" required>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Advanced</h2>
+          <div class="form-group">
+            <button type="button" id="clear-storage" class="btn btn-danger">
+              Clear Extension Data
+            </button>
+            <p class="help-text warning">This will delete all saved configuration and crawl state</p>
+          </div>
+        </section>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+          <span id="save-status" class="save-status"></span>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

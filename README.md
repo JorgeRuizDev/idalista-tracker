@@ -5,8 +5,10 @@ A Python-based system that connects to Gmail via IMAP, automatically crawls emai
 ## Features
 
 - **Automatic Email Crawling**: Connects to Gmail via IMAP and fetches property emails every hour
-- **Property Extraction**: Parses idealista emails using regex patterns to extract property details
+- **Chrome Extension**: Browser extension to crawl saved searches directly from Idealista website
+- **Property Extraction**: Parses idealista emails and web pages to extract property details
 - **Price Change Tracking**: Detects price changes and maintains a complete price history
+- **Missing Property Detection**: Identifies properties no longer listed (potential sales)
 - **REST API**: FastAPI-based API for querying properties with filtering and sorting
 - **SQLite Storage**: Zero-configuration local database using SQLAlchemy ORM
 
@@ -57,13 +59,56 @@ The API will be available at `http://localhost:8000`
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+## Chrome Extension
+
+The project includes a Chrome extension for crawling Idealista saved searches directly from the browser.
+
+### Quick Setup
+
+1. **Build the extension**:
+   ```bash
+   cd extension
+   npm install
+   npm run build
+   ```
+
+2. **Load in Chrome**:
+   - Open `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked"
+   - Select the `extension/dist` folder
+
+3. **Configure and use**:
+   - Click the extension icon
+   - Set Server URL to `http://localhost:8000`
+   - Visit Idealista saved searches page
+   - Select searches and start crawling
+
+📖 **Detailed Extension Documentation**: See [extension/README.md](extension/README.md)
+
 ## API Endpoints
 
+### Properties
 - `GET /api/v1/properties` - List all properties with filters
 - `GET /api/v1/properties/{idealista_id}` - Get single property with price history
 - `GET /api/v1/properties/price-drops` - Properties with price drops
-- `POST /api/v1/crawl/trigger` - Manually trigger a crawl
-- `GET /api/v1/crawl/status` - Get crawl status
+- `POST /api/v1/properties/batch` - Ingest property batch from extension
+
+### Saved Searches (Extension)
+- `GET /api/v1/searches` - List all saved searches
+- `POST /api/v1/searches/sync` - Sync searches from extension
+
+### Crawl Sessions (Extension)
+- `POST /api/v1/crawl/sessions` - Create new crawl session
+- `GET /api/v1/crawl/sessions/{id}` - Get crawl session
+- `POST /api/v1/crawl/sessions/{id}/complete` - Complete crawl session
+- `POST /api/v1/crawl/sessions/{id}/searches/{search_id}/detect-missing` - Detect missing properties
+
+### Legacy Crawl (Email)
+- `POST /api/v1/crawl/trigger` - Manually trigger email crawl
+- `GET /api/v1/crawl/status` - Get email crawl status
+
+### Statistics
 - `GET /api/v1/stats` - Get property statistics
 
 ## Development

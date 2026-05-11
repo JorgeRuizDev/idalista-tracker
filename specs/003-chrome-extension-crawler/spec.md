@@ -34,8 +34,11 @@ As a property investor using the Chrome extension, I want to configure which sav
 **Acceptance Scenarios**:
 
 1. **Given** the Chrome extension is installed, **When** the user opens the configuration panel and enters a valid crawl server URL, **Then** the extension saves the configuration and shows a confirmation.
-2. **Given** the user is on the Idealista saved searches page, **When** they open the extension popup, **Then** the extension displays all detected saved searches with checkboxes for selection.
-3. **Given** the user has selected one or more saved searches and configured the crawl server, **When** they click "Start Crawl", **Then** the extension begins crawling by navigating to the first selected search and loading its results page.
+2. **Given** the extension popup is open, **When** the user views the connection status section, **Then** the extension displays a visual indicator (green dot for connected, red for offline) showing whether the backend server is reachable.
+3. **Given** the extension has a configured server URL, **When** the user clicks the "Test" button, **Then** the extension attempts to connect to the backend and displays the connection result (success or error message).
+4. **Given** the user is on the Idealista saved searches page, **When** they open the extension popup, **Then** the extension displays all detected saved searches with checkboxes for selection.
+5. **Given** the user has selected one or more saved searches and the backend is connected, **When** they click "Start Crawl", **Then** the extension begins crawling by navigating to the first selected search and loading its results page.
+6. **Given** a crawl is in progress or has been attempted, **When** the user views the activity log section, **Then** they see a chronological log of all actions (connections, crawl starts, errors) with timestamps and severity levels (info, success, warning, error).
 4. **Given** a crawl is in progress, **When** the extension loads a search results page, **Then** it extracts all property listings on that page and sends them in a batch to the crawl server.
 5. **Given** a crawl is processing a search results page, **When** there are more pages in the pagination, **Then** the extension navigates to the next page after a random delay and continues crawling.
 6. **Given** the extension is crawling, **When** it loads any page, **Then** it performs human-like behavior including random sleep times (2-8 seconds) and fake scrolling before extracting data.
@@ -133,6 +136,12 @@ As a user of the Chrome extension, I want the crawling process to mimic human br
 7. **What happens when the Chrome extension is closed or the browser crashes during a crawl?**
    - The extension should persist crawl state (current search, current page, remaining searches) to Chrome storage and offer to resume when reopened.
 
+8. **What happens when the backend server is offline when the user tries to start a crawl?**
+   - The extension should display a clear offline status indicator, disable the "Start Crawl" button, show an error message explaining the connection issue, and log the failed connection attempt in the activity log.
+
+9. **How does the system handle intermittent backend connectivity during a crawl?**
+   - The extension should detect connection failures, log the error, pause the crawl, retry the connection with exponential backoff, and either resume automatically when connectivity is restored or prompt the user if retries are exhausted.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -155,6 +164,9 @@ As a user of the Chrome extension, I want the crawling process to mimic human br
 - **FR-016**: The Chrome extension MUST handle network errors with retry logic (exponential backoff, max 5 retries).
 - **FR-017**: The Chrome extension MUST detect rate limiting or blocking and pause the crawl with user notification.
 - **FR-018**: The API MUST only mark a property as missing if it is absent from ALL saved searches that previously contained it, not just one.
+- **FR-019**: The Chrome extension MUST display a visual server status indicator (green for connected, red for offline) that checks backend connectivity on popup open and provides a manual "Test" button for verification.
+- **FR-020**: The Chrome extension MUST expose an activity log window in the popup that displays chronological events (connection attempts, crawl actions, errors) with timestamps and severity levels (info, success, warning, error).
+- **FR-021**: The Chrome extension MUST disable the "Start Crawl" button when the backend server is offline or unreachable, preventing crawl initiation without a valid connection.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -164,6 +176,7 @@ As a user of the Chrome extension, I want the crawling process to mimic human br
 - **CrawlSession**: Represents a single crawling operation. Key attributes: session ID, start time, end time, status (running/completed/failed), saved searches crawled, total properties processed, server URL used.
 - **SavedSearch**: Represents a saved search/filter configuration from Idealista. Key attributes: search ID, name, URL, date added, last crawled timestamp.
 - **CrawlConfiguration**: User settings for the Chrome extension. Key attributes: server URL, enable human-like behavior, min/max delay ranges, retry settings.
+- **ActivityLog**: In-extension log of user-visible events. Key attributes: timestamp, message, severity level (info/success/warning/error), optional error details.
 
 ## Success Criteria *(mandatory)*
 
@@ -179,6 +192,9 @@ As a user of the Chrome extension, I want the crawling process to mimic human br
 - **SC-008**: Users can view a complete history timeline for any property showing all seen/missing events and attribute changes.
 - **SC-009**: The batch API handles duplicate property IDs in a single batch without creating duplicate database entries.
 - **SC-010**: The Chrome extension detects and handles rate limiting events, pausing for 5 minutes and resuming automatically (up to 3 times before requiring user intervention).
+- **SC-011**: The Chrome extension accurately displays backend connection status within 3 seconds of opening the popup, with a success rate of 100% for valid server URLs.
+- **SC-012**: The activity log displays all significant events (connections, crawl starts/stops, errors) in chronological order with 100% accuracy, retaining the last 50 log entries.
+- **SC-013**: Users can verify backend connectivity and view connection error details before attempting to start a crawl, reducing failed crawl attempts due to configuration errors by 90%.
 
 ## Assumptions
 

@@ -67,10 +67,11 @@ def create_app() -> FastAPI:
         }
 
     # Add API routers
-    from src.api.routes import crawl, properties, stats
+    from src.api.routes import crawl, properties, searches, stats
 
     app.include_router(crawl.router, prefix="/api/v1")
     app.include_router(properties.router, prefix="/api/v1")
+    app.include_router(searches.router, prefix="/api/v1")
     app.include_router(stats.router, prefix="/api/v1")
 
     return app

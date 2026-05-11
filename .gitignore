@@ -54,3 +54,11 @@ htmlcov/
 .DS_Store
 Thumbs.db
 idealista_properties.db
+
+# Node.js / Extension
+extension/node_modules/
+extension/dist/
+extension/.env*
+extension/*.log
+extension/coverage/
+extension/.vite/

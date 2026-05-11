@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
 from src.api.schemas import (
+    BatchIngestionRequest,
+    BatchIngestionResponse,
     PropertyDetailResponse,
     PropertyListResponse,
     PropertyPriceDropListResponse,
@@ -127,3 +129,58 @@ async def get_property(
         )
 
     return PropertyDetailResponse.model_validate(property_obj)
+
+
+@router.post("/batch", response_model=BatchIngestionResponse)
+async def ingest_property_batch(
+    request: BatchIngestionRequest,
+    db: Session = Depends(get_db),
+) -> BatchIngestionResponse:
+    """Ingest a batch of properties from the Chrome extension.
+
+    Args:
+        request: Batch ingestion request with properties and metadata.
+        db: Database session.
+
+    Returns:
+        Batch ingestion response with results and statistics.
+    """
+    import time
+    from datetime import datetime
+
+    start_time = time.time()
+    service = PropertyService(db)
+
+    results, errors = service.process_property_batch(
+        session_id=request.session_id,
+        search_id=request.search_id,
+        external_search_id=request.external_search_id,
+        page=request.page,
+        properties_data=[p.model_dump() for p in request.properties],
+        metadata=request.metadata.model_dump(),
+    )
+
+    processing_time = int((time.time() - start_time) * 1000)
+
+    created = sum(1 for r in results if r.get("action") == "created")
+    updated = sum(1 for r in results if r.get("action") == "updated")
+    seen = sum(1 for r in results if r.get("action") == "seen")
+    invalid = len(errors)
+
+    return BatchIngestionResponse(
+        success=len(errors) == 0 or len(results) > 0,
+        summary={
+            "total_received": len(request.properties),
+            "created": created,
+            "updated": updated,
+            "seen": seen,
+            "invalid": invalid,
+        },
+        results=results,
+        errors=errors,
+        meta={
+            "processed_at": datetime.utcnow().isoformat(),
+            "processing_time_ms": processing_time,
+            "api_version": "1.0.0",
+        },
+    )

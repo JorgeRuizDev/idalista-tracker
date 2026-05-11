@@ -25,12 +25,12 @@
 
 **Purpose**: Extension project initialization and build configuration
 
-- [ ] T001 Create extension directory structure: `extension/src/{content,popup,options,services,utils,types}`, `extension/public/{icons,_locales/en}`
-- [ ] T002 [P] Initialize Node.js project in `extension/package.json` with TypeScript, Vite, ESLint, Prettier dependencies
-- [ ] T003 [P] Create TypeScript configuration in `extension/tsconfig.json` with strict mode and Chrome types
-- [ ] T004 [P] Create Vite build configuration in `extension/vite.config.ts` for Manifest V3
-- [ ] T005 Create extension manifest in `extension/public/manifest.json` with host permissions for idealista.com and localhost:8000
-- [ ] T006 Add build scripts to `extension/package.json` (dev, build, lint, type-check)
+- [X] T001 Create extension directory structure: `extension/src/{content,popup,options,services,utils,types}`, `extension/public/{icons,_locales/en}`
+- [X] T002 [P] Initialize Node.js project in `extension/package.json` with TypeScript, Vite, ESLint, Prettier dependencies
+- [X] T003 [P] Create TypeScript configuration in `extension/tsconfig.json` with strict mode and Chrome types
+- [X] T004 [P] Create Vite build configuration in `extension/vite.config.ts` for Manifest V3
+- [X] T005 Create extension manifest in `extension/public/manifest.json` with host permissions for idealista.com and localhost:8000
+- [X] T006 Add build scripts to `extension/package.json` (dev, build, lint, type-check)
 
 **Checkpoint**: Extension project structure ready - can build and load in Chrome
 
@@ -44,24 +44,24 @@
 
 ### Database Models & Migration
 
-- [ ] T007 [P] Add new fields to Property model in `src/database/models.py`: `status`, `first_seen_at`, `last_seen_at`, `missing_since`
-- [ ] T008 [P] Create CrawlSession model in `src/database/models.py`
-- [ ] T009 [P] Create SavedSearch model in `src/database/models.py`
-- [ ] T010 [P] Create PropertyVisibility model in `src/database/models.py`
-- [ ] T011 [P] Create PropertyChange model in `src/database/models.py`
-- [ ] T012 Create crawl_session_property association table in `src/database/models.py`
-- [ ] T013 Add relationships to Property model: `visibility_history`, `attribute_changes`, `crawl_sessions`
-- [ ] T014 Create Alembic migration script to add new tables and columns
-- [ ] T015 Run database migration: `alembic upgrade head`
+- [X] T007 [P] Add new fields to Property model in `src/database/models.py`: `status`, `first_seen_at`, `last_seen_at`, `missing_since`
+- [X] T008 [P] Create CrawlSession model in `src/database/models.py`
+- [X] T009 [P] Create SavedSearch model in `src/database/models.py`
+- [X] T010 [P] Create PropertyVisibility model in `src/database/models.py`
+- [X] T011 [P] Create PropertyChange model in `src/database/models.py`
+- [X] T012 Create crawl_session_property association table in `src/database/models.py`
+- [X] T013 Add relationships to Property model: `visibility_history`, `attribute_changes`, `crawl_sessions`
+- [X] T014 Create migration script in `src/database/migrate_extension.py` to add new tables and columns
+- [X] T015 Run database migration successfully
 
 ### Backend API Schemas
 
-- [ ] T016 [P] Create Pydantic schemas in `src/api/schemas.py` for CrawlSession, SavedSearch, PropertyVisibility, PropertyChange
-- [ ] T017 [P] Create Pydantic schemas in `src/api/schemas.py` for BatchIngestionRequest and BatchIngestionResponse
+- [X] T016 [P] Create Pydantic schemas in `src/api/schemas.py` for CrawlSession, SavedSearch, PropertyVisibility, PropertyChange
+- [X] T017 [P] Create Pydantic schemas in `src/api/schemas.py` for BatchIngestionRequest and BatchIngestionResponse
 
 ### Extension Type Definitions
 
-- [ ] T018 Create TypeScript interfaces in `extension/src/types/index.ts`: Property, SavedSearch, CrawlState, CrawlConfig
+- [X] T018 Create TypeScript interfaces in `extension/src/types/index.ts`: Property, SavedSearch, CrawlState, CrawlConfig
 
 **Checkpoint**: Foundation ready - database schema migrated, models defined, types established - user story implementation can now begin
 
@@ -82,37 +82,37 @@
 
 #### Backend API Endpoints
 
-- [ ] T021 [US1] Create SavedSearch service in `src/services/saved_search_service.py` with sync_from_extension method
-- [ ] T022 [US1] Create crawl session service in `src/services/crawl_service.py` with create_session method
-- [ ] T023 [US1] Create SavedSearch API routes in `src/api/routes/searches.py` with GET /searches and POST /searches/sync endpoints
-- [ ] T024 [US1] Add crawl session endpoints to `src/api/routes/crawl.py`: POST /crawl/sessions and GET /crawl/sessions/{id}
-- [ ] T025 [US1] Register new routes in `src/main.py`
+- [X] T021 [US1] Create SavedSearch service in `src/services/saved_search_service.py` with sync_from_extension method
+- [X] T022 [US1] Create crawl session service in `src/services/crawl_service.py` with create_session method
+- [X] T023 [US1] Create SavedSearch API routes in `src/api/routes/searches.py` with GET /searches and POST /searches/sync endpoints
+- [X] T024 [US1] Add crawl session endpoints to `src/api/routes/crawl.py`: POST /crawl/sessions and GET /crawl/sessions/{id}
+- [X] T025 [US1] Register new routes in `src/main.py`
 
 #### Extension Configuration
 
-- [ ] T026 [US1] Create extension options page HTML in `extension/src/options/index.html`
-- [ ] T027 [US1] Create extension options page logic in `extension/src/options/index.ts` for server URL configuration
-- [ ] T028 [US1] Create options page styles in `extension/src/options/styles.css`
-- [ ] T029 [US1] Implement storage service in `extension/src/services/storage.ts` for Chrome Storage API wrapper
+- [X] T026 [US1] Create extension options page HTML in `extension/src/options/index.html`
+- [X] T027 [US1] Create extension options page logic in `extension/src/options/index.ts` for server URL configuration
+- [X] T028 [US1] Create options page styles in `extension/src/options/styles.css`
+- [X] T029 [US1] Implement storage service in `extension/src/services/storage.ts` for Chrome Storage API wrapper
 
 #### Extension Saved Search Detection
 
-- [ ] T030 [P] [US1] Create DOM parser utilities in `extension/src/utils/parsers.ts` for price, size, location extraction
-- [ ] T031 [P] [US1] Create saved search extraction logic in `extension/src/content/searches.ts`
-- [ ] T032 [US1] Create content script entry in `extension/src/content/index.ts` to detect page type and extract searches
+- [X] T030 [P] [US1] Create DOM parser utilities in `extension/src/utils/parsers.ts` for price, size, location extraction
+- [X] T031 [P] [US1] Create saved search extraction logic in `extension/src/content/searches.ts`
+- [X] T032 [US1] Create content script entry in `extension/src/content/index.ts` to detect page type and extract searches
 
 #### Extension Popup UI
 
-- [ ] T033 [US1] Create popup HTML in `extension/src/popup/index.html` with search list and checkboxes
-- [ ] T034 [US1] Create popup logic in `extension/src/popup/index.ts` to display searches and handle selection
-- [ ] T035 [US1] Create popup styles in `extension/src/popup/styles.css`
-- [ ] T036 [US1] Implement API client in `extension/src/services/api.ts` for backend communication
+- [X] T033 [US1] Create popup HTML in `extension/src/popup/index.html` with search list and checkboxes
+- [X] T034 [US1] Create popup logic in `extension/src/popup/index.ts` to display searches and handle selection
+- [X] T035 [US1] Create popup styles in `extension/src/popup/styles.css`
+- [X] T036 [US1] Implement API client in `extension/src/services/api.ts` for backend communication
 
 #### Extension Crawl Orchestration
 
-- [ ] T037 [US1] Create background service worker in `extension/src/background.ts` with message handlers
-- [ ] T038 [US1] Implement crawl state machine in `extension/src/services/crawler.ts` with start/pause/resume logic
-- [ ] T039 [US1] Add crawl progress tracking to Chrome Storage in `extension/src/services/storage.ts`
+- [X] T037 [US1] Create background service worker in `extension/src/background.ts` with message handlers
+- [X] T038 [US1] Implement crawl state machine in `extension/src/services/crawler.ts` with start/pause/resume logic
+- [X] T039 [US1] Add crawl progress tracking to Chrome Storage in `extension/src/services/storage.ts`
 
 **Checkpoint**: User Story 1 complete - extension can be configured, detect searches, and start a crawl session
 
@@ -134,28 +134,28 @@
 
 #### Backend Batch Processing
 
-- [ ] T043 [US2] Add batch_ingest method to `src/services/property_service.py` for processing property batches
-- [ ] T044 [US2] Implement duplicate detection logic in `src/services/property_service.py`
-- [ ] T045 [US2] Implement property change detection in `src/services/property_service.py`
-- [ ] T046 [US2] Add PropertyVisibility recording in `src/services/property_service.py` for seen events
-- [ ] T047 [US2] Add PropertyChange recording in `src/services/property_service.py` for attribute changes
-- [ ] T048 [US2] Create POST /properties/batch endpoint in `src/api/routes/properties.py`
-- [ ] T049 [US2] Add request validation for batch endpoint in `src/api/routes/properties.py`
-- [ ] T050 [US2] Add response formatting with created/updated/error counts in `src/api/routes/properties.py`
+- [X] T043 [US2] Add batch_ingest method to `src/services/property_service.py` for processing property batches
+- [X] T044 [US2] Implement duplicate detection logic in `src/services/property_service.py`
+- [X] T045 [US2] Implement property change detection in `src/services/property_service.py`
+- [X] T046 [US2] Add PropertyVisibility recording in `src/services/property_service.py` for seen events
+- [X] T047 [US2] Add PropertyChange recording in `src/services/property_service.py` for attribute changes
+- [X] T048 [US2] Create POST /properties/batch endpoint in `src/api/routes/properties.py`
+- [X] T049 [US2] Add request validation for batch endpoint in `src/api/routes/properties.py`
+- [X] T050 [US2] Add response formatting with created/updated/error counts in `src/api/routes/properties.py`
 
 #### Extension Property Extraction
 
-- [ ] T051 [P] [US2] Create property listing extraction logic in `extension/src/content/listings.ts`
-- [ ] T052 [P] [US2] Create DOM utilities in `extension/src/utils/dom.ts` for safe element selection
-- [ ] T053 [US2] Implement pagination detection in `extension/src/content/listings.ts`
-- [ ] T054 [US2] Update content script entry in `extension/src/content/index.ts` to handle search results pages
+- [X] T051 [P] [US2] Create property listing extraction logic in `extension/src/content/listings.ts`
+- [X] T052 [P] [US2] Create DOM utilities in `extension/src/utils/dom.ts` for safe element selection
+- [X] T053 [US2] Implement pagination detection in `extension/src/content/listings.ts`
+- [X] T054 [US2] Update content script entry in `extension/src/content/index.ts` to handle search results pages
 
 #### Extension Batch Sending
 
-- [ ] T055 [US2] Implement batch sending with retry logic in `extension/src/services/api.ts`
-- [ ] T056 [US2] Add exponential backoff for failed requests in `extension/src/services/api.ts`
-- [ ] T057 [US2] Implement queue for failed batches in `extension/src/services/crawler.ts`
-- [ ] T058 [US2] Add page navigation logic in `extension/src/services/crawler.ts`
+- [X] T055 [US2] Implement batch sending with retry logic in `extension/src/services/api.ts`
+- [X] T056 [US2] Add exponential backoff for failed requests in `extension/src/services/api.ts`
+- [X] T057 [US2] Implement queue for failed batches in `extension/src/services/crawler.ts`
+- [X] T058 [US2] Add page navigation logic in `extension/src/services/crawler.ts`
 
 **Checkpoint**: User Story 2 complete - extension extracts properties and sends batches to API, backend stores with proper tracking
 

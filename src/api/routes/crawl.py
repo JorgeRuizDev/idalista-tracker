@@ -8,9 +8,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
-from src.api.schemas import CrawlStatusResponse, CrawlTriggerRequest, CrawlTriggerResponse
+from src.api.schemas import (
+    CrawlSessionCreate,
+    CrawlSessionResponse,
+    CrawlSessionCompleteRequest,
+    CrawlStatusResponse,
+    CrawlTriggerRequest,
+    CrawlTriggerResponse,
+    DetectMissingRequest,
+    DetectMissingResponse,
+)
 from src.crawler.scheduler import get_next_run_time, start_scheduler, stop_scheduler
 from src.crawler.service import CrawlerService
+from src.services import crawl_service
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +139,63 @@ async def get_crawl_status() -> CrawlStatusResponse:
         errors=result.get("errors", 0),
         next_scheduled_crawl=get_next_run_time(),
     )
+
+
+# Extension Crawler Endpoints
+
+@router.post("/sessions", response_model=CrawlSessionResponse, status_code=status.HTTP_201_CREATED)
+def create_crawl_session(
+    request: CrawlSessionCreate,
+    db: Session = Depends(get_db),
+) -> CrawlSessionResponse:
+    """Create a new crawl session from the extension."""
+    session = crawl_service.create_crawl_session(db, request)
+    return session
+
+
+@router.get("/sessions/{session_id}", response_model=CrawlSessionResponse)
+def get_crawl_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> CrawlSessionResponse:
+    """Get a crawl session by ID."""
+    session = crawl_service.get_crawl_session(db, session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Crawl session not found",
+        )
+    return session
+
+
+@router.post("/sessions/{session_id}/complete", response_model=CrawlSessionResponse)
+def complete_crawl_session(
+    session_id: int,
+    request: CrawlSessionCompleteRequest,
+    db: Session = Depends(get_db),
+) -> CrawlSessionResponse:
+    """Mark a crawl session as completed."""
+    session = crawl_service.complete_crawl_session(db, session_id, request)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Crawl session not found",
+        )
+    return session
+
+
+@router.post(
+    "/sessions/{session_id}/searches/{search_id}/detect-missing",
+    response_model=DetectMissingResponse,
+)
+def detect_missing_properties(
+    session_id: int,
+    search_id: int,
+    request: DetectMissingRequest,
+    db: Session = Depends(get_db),
+) -> DetectMissingResponse:
+    """Detect properties that are no longer visible in a search."""
+    result = crawl_service.detect_missing_properties(
+        db, session_id, search_id, request.current_property_external_ids
+    )
+    return DetectMissingResponse(**result)
