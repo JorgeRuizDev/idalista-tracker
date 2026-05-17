@@ -24,12 +24,12 @@
 
 **Purpose**: Project initialization and Next.js setup
 
-- [ ] T001 Create `frontend/` directory and initialize Next.js 14 project with TypeScript
-- [ ] T002 [P] Install core dependencies: `recharts`, `better-sqlite3`
-- [ ] T003 [P] Install dev dependencies: `@types/better-sqlite3`, `typescript`, `tailwindcss`, `postcss`, `autoprefixer`
-- [ ] T004 [P] Configure Tailwind CSS with `tailwind.config.ts` and `postcss.config.js`
-- [ ] T005 Configure `next.config.js` for static export and database path
-- [ ] T006 Create `tsconfig.json` with strict TypeScript settings
+- [X] T001 Create `frontend/` directory and initialize Next.js 14 project with TypeScript
+- [X] T002 [P] Install core dependencies: `recharts`, `better-sqlite3`
+- [X] T003 [P] Install dev dependencies: `@types/better-sqlite3`, `typescript`, `tailwindcss`, `postcss`, `autoprefixer`
+- [X] T004 [P] Configure Tailwind CSS with `tailwind.config.ts` and `postcss.config.js`
+- [X] T005 Configure `next.config.js` for static export and database path
+- [X] T006 Create `tsconfig.json` with strict TypeScript settings
 
 ---
 
@@ -39,13 +39,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Create `frontend/types/property.ts` with TypeScript interfaces (Property, PriceBucket, PriceDistribution, PaginatedProperties, PaginationInfo)
-- [ ] T008 Implement `frontend/lib/db.ts` with database connection singleton using better-sqlite3
-- [ ] T009 Implement `getPaginatedProperties()` function in `frontend/lib/db.ts` with SQL query and pagination logic
-- [ ] T010 Implement `getPriceDistribution()` function in `frontend/lib/db.ts` with bucket aggregation SQL
-- [ ] T011 Create `frontend/lib/utils.ts` with helper functions (currency formatter, price bucket formatter)
-- [ ] T012 Create root layout `frontend/app/layout.tsx` with HTML structure and metadata
-- [ ] T013 Create global styles `frontend/app/globals.css` with Tailwind directives
+- [X] T007 Create `frontend/types/property.ts` with TypeScript interfaces (Property, PriceBucket, PriceDistribution, PaginatedProperties, PaginationInfo)
+- [X] T008 Implement `frontend/lib/db.ts` with database connection singleton using better-sqlite3
+- [X] T009 Implement `getPaginatedProperties()` function in `frontend/lib/db.ts` with SQL query and pagination logic
+- [X] T010 Implement `getPriceDistribution()` function in `frontend/lib/db.ts` with bucket aggregation SQL
+- [X] T011 Create `frontend/lib/utils.ts` with helper functions (currency formatter, price bucket formatter)
+- [X] T012 Create root layout `frontend/app/layout.tsx` with HTML structure and metadata
+- [X] T013 Create global styles `frontend/app/globals.css` with Tailwind directives
 
 **Checkpoint**: Foundation ready - database connection works, types defined, utilities available. User story implementation can now begin.
 
@@ -59,15 +59,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Create `frontend/components/PropertyCard.tsx` to display individual property (title, price, location, property type, size, bedrooms, status badge)
-- [ ] T015 [US1] Create `frontend/components/Pagination.tsx` with previous/next buttons and page numbers
-- [ ] T016 [US1] Create `frontend/components/PropertyList.tsx` that composes PropertyCard and Pagination
-- [ ] T017 [US1] Implement `frontend/app/page.tsx` Server Component that fetches paginated properties and renders PropertyList + empty state handling
-- [ ] T018 [US1] Create `frontend/app/loading.tsx` with loading spinner/skeleton for property list
-- [ ] T019 [US1] Create `frontend/app/error.tsx` with Error Boundary for database connection failures
-- [ ] T020 [US1] Add URL query param handling for `?page=N` in page.tsx
-- [ ] T021 [US1] Style PropertyCard with Tailwind (card layout, responsive grid, hover effects)
-- [ ] T022 [US1] Style Pagination with Tailwind (button states, current page indicator)
+- [X] T014 [US1] Create `frontend/components/PropertyCard.tsx` to display individual property (title, price, location, property type, size, bedrooms, status badge)
+- [X] T015 [US1] Create `frontend/components/Pagination.tsx` with previous/next buttons and page numbers
+- [X] T016 [US1] Create `frontend/components/PropertyList.tsx` that composes PropertyCard and Pagination
+- [X] T017 [US1] Implement `frontend/app/page.tsx` Server Component that fetches paginated properties and renders PropertyList + empty state handling
+- [X] T018 [US1] Create `frontend/app/loading.tsx` with loading spinner/skeleton for property list
+- [X] T019 [US1] Create `frontend/app/error.tsx` with Error Boundary for database connection failures
+- [X] T020 [US1] Add URL query param handling for `?page=N` in page.tsx
+- [X] T021 [US1] Style PropertyCard with Tailwind (card layout, responsive grid, hover effects)
+- [X] T022 [US1] Style Pagination with Tailwind (button states, current page indicator)
 
 **Checkpoint**: User Story 1 complete - paginated property list works independently. Properties display with all required fields, pagination navigates correctly, loading and error states function.
 
@@ -81,13 +81,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T023 [P] [US2] Create `frontend/components/PriceChart.tsx` with Recharts BarChart for price distribution histogram
-- [ ] T024 [US2] Update `frontend/app/page.tsx` to fetch price distribution data alongside paginated properties
-- [ ] T025 [US2] Integrate PriceChart into page layout alongside PropertyList (responsive two-column or stacked layout)
-- [ ] T026 [US2] Add chart customization: tooltip showing price range and count, axis labels, chart title
-- [ ] T027 [US2] Handle edge cases in PriceChart: single property, identical prices, empty database
-- [ ] T028 [US2] Style PriceChart container with Tailwind (card wrapper, responsive sizing)
-- [ ] T029 [US2] Ensure chart re-renders when page data refreshes (Server Component re-fetch on navigation)
+- [X] T023 [P] [US2] Create `frontend/components/PriceChart.tsx` with Recharts BarChart for price distribution histogram
+- [X] T024 [US2] Update `frontend/app/page.tsx` to fetch price distribution data alongside paginated properties
+- [X] T025 [US2] Integrate PriceChart into page layout alongside PropertyList (responsive two-column or stacked layout)
+- [X] T026 [US2] Add chart customization: tooltip showing price range and count, axis labels, chart title
+- [X] T027 [US2] Handle edge cases in PriceChart: single property, identical prices, empty database
+- [X] T028 [US2] Style PriceChart container with Tailwind (card wrapper, responsive sizing)
+- [X] T029 [US2] Ensure chart re-renders when page data refreshes (Server Component re-fetch on navigation)
 
 **Checkpoint**: User Story 2 complete - price distribution graph displays alongside property list. Both features work independently. Chart handles all edge cases.
 
@@ -101,12 +101,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T030 [P] [US3] Add responsive breakpoints to `frontend/app/page.tsx` layout (grid changes: 1 column mobile, 2 columns desktop)
-- [ ] T031 [P] [US3] Update `frontend/components/PropertyCard.tsx` with responsive sizing (stack vs side-by-side layout)
-- [ ] T032 [P] [US3] Update `frontend/components/PriceChart.tsx` with responsive container (Recharts ResponsiveContainer)
-- [ ] T033 [US3] Update `frontend/components/Pagination.tsx` with mobile-friendly sizing (larger touch targets, simplified on small screens)
-- [ ] T034 [US3] Test and adjust spacing, font sizes, and padding across all breakpoints in `globals.css`
-- [ ] T035 [US3] Verify empty and error states display correctly on all screen sizes
+- [X] T030 [P] [US3] Add responsive breakpoints to `frontend/app/page.tsx` layout (grid changes: 1 column mobile, 2 columns desktop)
+- [X] T031 [P] [US3] Update `frontend/components/PropertyCard.tsx` with responsive sizing (stack vs side-by-side layout)
+- [X] T032 [P] [US3] Update `frontend/components/PriceChart.tsx` with responsive container (Recharts ResponsiveContainer)
+- [X] T033 [P] [US3] Update `frontend/components/Pagination.tsx` with mobile-friendly sizing (larger touch targets, simplified on small screens)
+- [X] T034 [P] [US3] Test and adjust spacing, font sizes, and padding across all breakpoints in `globals.css`
+- [X] T035 [P] [US3] Verify empty and error states display correctly on all screen sizes
 
 **Checkpoint**: User Story 3 complete - frontend is fully responsive. Property list, chart, and pagination work on all screen sizes.
 
@@ -116,15 +116,15 @@
 
 **Purpose**: Final improvements and validation
 
-- [ ] T036 [P] Run `npm run build` to verify static export works without errors
-- [ ] T037 [P] Test with empty database - verify empty state message displays correctly
-- [ ] T038 [P] Test error handling - verify error boundary catches database failures gracefully
-- [ ] T039 [P] Verify all edge cases from spec: single property, identical prices, extreme price variations
-- [ ] T040 [P] Run quickstart.md validation steps
-- [ ] T041 [P] Final code review: ensure all TypeScript types are correct, no `any` types
-- [ ] T042 [P] Verify loading states display correctly (throttle network if needed)
-- [ ] T043 [P] Add `.gitignore` for `frontend/` (node_modules, .next, dist, .env.local)
-- [ ] T044 Update `specs/004-basic-property-frontend/quickstart.md` if any setup steps changed during implementation
+- [X] T036 [P] Run `npm run build` to verify static export works without errors
+- [X] T037 [P] Test with empty database - verify empty state message displays correctly
+- [X] T038 [P] Test error handling - verify error boundary catches database failures gracefully
+- [X] T039 [P] Verify all edge cases from spec: single property, identical prices, extreme price variations
+- [X] T040 [P] Run quickstart.md validation steps
+- [X] T041 [P] Final code review: ensure all TypeScript types are correct, no `any` types
+- [X] T042 [P] Verify loading states display correctly (throttle network if needed)
+- [X] T043 [P] Add `.gitignore` for `frontend/` (node_modules, .next, dist, .env.local)
+- [X] T044 Update `specs/004-basic-property-frontend/quickstart.md` if any setup steps changed during implementation
 
 ---
 

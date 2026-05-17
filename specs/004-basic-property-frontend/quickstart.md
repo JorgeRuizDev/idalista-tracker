@@ -28,10 +28,10 @@ Required packages:
 - `react`
 - `react-dom`
 - `recharts`
-- `better-sqlite3`
+- `sql.js` (pure JavaScript SQLite - no native dependencies)
 - `tailwindcss`
 - `typescript`
-- `@types/better-sqlite3`
+- `@types/sql.js`
 
 ### 3. Configure database path
 
@@ -111,20 +111,21 @@ frontend/
 
 ### Testing pagination
 
-```bash
-# With test data
-curl http://localhost:3000/?page=2
-```
+Pagination is handled client-side for static export compatibility:
 
-Or navigate in browser and use pagination controls.
+1. Navigate to the main page
+2. Use the Previous/Next buttons or page numbers
+3. The page updates instantly without reload
+
+**Note**: For static export, pagination is done client-side. All properties are loaded at build time, and the client-side component handles pagination.
 
 ## Common Issues
 
 ### Database not found
 
-**Error**: `SqliteError: unable to open database file`
+**Error**: `Failed to initialize database` or file not found errors
 
-**Solution**: Ensure `idealista_properties.db` exists in the project root and the path in `lib/db.ts` is correct.
+**Solution**: Ensure `idealista_properties.db` exists in the project root and the path in `lib/db.ts` is correct. The default path is `../idealista_properties.db` (relative to the frontend directory).
 
 ### Port already in use
 
@@ -144,8 +145,15 @@ npm run dev -- --port 3001
 content: [
   './app/**/*.{js,ts,jsx,tsx,mdx}',
   './components/**/*.{js,ts,jsx,tsx,mdx}',
+  './lib/**/*.{js,ts,jsx,tsx,mdx}',
 ],
 ```
+
+### better-sqlite3 compilation errors
+
+**Error**: `gyp ERR! configure error` or Visual Studio build tools required
+
+**Solution**: This project uses `sql.js` (pure JavaScript) instead of `better-sqlite3` to avoid native compilation issues. If you encounter this error, ensure you're using the updated `package.json` that includes `sql.js` instead of `better-sqlite3`.
 
 ## Environment Variables
 
@@ -157,14 +165,39 @@ content: [
 ## Performance Tips
 
 - Use static export for fastest page loads
-- Database queries are synchronous (better-sqlite3) for simplicity
+- Database queries use `sql.js` (pure JavaScript SQLite)
 - Pagination limits data transferred per request
 - Price distribution computed in SQL (faster than JS)
+- Data is fetched at build time for static export (no runtime database needed)
 
-## Next Steps
+## Implementation Status
 
-- [ ] Implement `PropertyList` component
-- [ ] Implement `PriceChart` component  
-- [ ] Add pagination controls
-- [ ] Style with Tailwind
-- [ ] Add loading and error states
+✅ All components implemented:
+- ✅ `PropertyList` component with pagination
+- ✅ `PriceChart` component with Recharts
+- ✅ `PropertyCard` with status badges and property details
+- ✅ `Pagination` controls with responsive design
+- ✅ Tailwind styling throughout
+- ✅ Loading and error states
+- ✅ Responsive layout for mobile/desktop
+
+## Troubleshooting
+
+### Windows-specific issues
+
+If you encounter permission errors during `npm install`:
+```bash
+# Run PowerShell as Administrator
+# Or use:
+npm install --legacy-peer-deps
+```
+
+### sql.js WASM file loading
+
+The database module loads the sql.js WASM file from a CDN by default. For offline/air-gapped environments, you can:
+1. Download the WASM file from https://sql.js.org/dist/sql-wasm.wasm
+2. Place it in the `public/` folder
+3. Update `lib/db.ts` to use a local path:
+   ```typescript
+   locateFile: (file) => `/sql-wasm.wasm`
+   ```
