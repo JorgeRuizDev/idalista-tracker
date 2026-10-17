@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
 from src.api.schemas import (
+    CrawlHistoryDetailResponse,
+    CrawlHistoryEntry,
+    CrawlHistoryResponse,
     CrawlSessionCreate,
     CrawlSessionResponse,
     CrawlSessionCompleteRequest,
@@ -21,6 +24,7 @@ from src.api.schemas import (
 from src.crawler.scheduler import get_next_run_time, start_scheduler, stop_scheduler
 from src.crawler.service import CrawlerService
 from src.services import crawl_service
+from src.services.property_service import PropertyService
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +200,45 @@ def detect_missing_properties(
 ) -> DetectMissingResponse:
     """Detect properties that are no longer visible in a search."""
     result = crawl_service.detect_missing_properties(
-        db, session_id, search_id, request.current_property_external_ids
+        db, session_id, search_id, request.current_property_external_ids,
+        external_search_id=request.external_search_id,
     )
     return DetectMissingResponse(**result)
+
+
+@router.get("/history", response_model=CrawlHistoryResponse)
+def get_crawl_history(
+    days: int = 90,
+    db: Session = Depends(get_db),
+) -> CrawlHistoryResponse:
+    """Get daily crawl history with aggregated price change statistics.
+
+    Args:
+        days: Number of days of history to return (default 90).
+        db: Database session.
+
+    Returns:
+        CrawlHistoryResponse with per-day statistics.
+    """
+    service = PropertyService(db)
+    entries = service.get_crawl_history(days=min(days, 365))
+    return CrawlHistoryResponse(entries=[CrawlHistoryEntry(**e) for e in entries])
+
+
+@router.get("/history/{date}", response_model=CrawlHistoryDetailResponse)
+def get_crawl_history_detail(
+    date: str,
+    db: Session = Depends(get_db),
+) -> CrawlHistoryDetailResponse:
+    """Get detailed crawl history for a specific date.
+
+    Args:
+        date: Date string in YYYY-MM-DD format.
+        db: Database session.
+
+    Returns:
+        CrawlHistoryDetailResponse with lists of affected properties.
+    """
+    service = PropertyService(db)
+    detail = service.get_crawl_history_detail(date)
+    return CrawlHistoryDetailResponse(**detail)

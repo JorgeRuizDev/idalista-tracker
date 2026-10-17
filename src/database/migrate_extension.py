@@ -111,7 +111,8 @@ def migrate_database():
                     status VARCHAR(20) NOT NULL DEFAULT 'active',
                     first_seen_at DATETIME NOT NULL,
                     last_seen_at DATETIME NOT NULL,
-                    missing_since DATETIME
+                    missing_since DATETIME,
+                    sold_at DATETIME
                 )
             """))
             conn.execute(text("""
@@ -120,13 +121,42 @@ def migrate_database():
                     original_price, current_price, price_drop_percentage,
                     size_m2, bedrooms, floor, has_elevator, property_url,
                     image_url, email_id, created_at, updated_at, is_active,
-                    status, first_seen_at, last_seen_at, missing_since
+                    status, first_seen_at, last_seen_at, missing_since,
+                    NULL
                 FROM property
             """))
             conn.execute(text("DROP TABLE property"))
             conn.execute(text("ALTER TABLE property_new RENAME TO property"))
             conn.commit()
             logger.info("email_id column is now nullable.")
+
+        # Ensure sold_at column exists
+        logger.info("Checking sold_at column...")
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM pragma_table_info('property') WHERE name='sold_at'")
+        )
+        has_sold_at = result.scalar() > 0
+        if not has_sold_at:
+            logger.info("Adding sold_at column to Property table...")
+            conn.execute(text("ALTER TABLE property ADD COLUMN sold_at DATETIME"))
+            conn.commit()
+            logger.info("sold_at column added.")
+        else:
+            logger.info("sold_at column already exists.")
+
+        # Ensure image_data column exists
+        logger.info("Checking image_data column...")
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM pragma_table_info('property') WHERE name='image_data'")
+        )
+        has_image_data = result.scalar() > 0
+        if not has_image_data:
+            logger.info("Adding image_data column to Property table...")
+            conn.execute(text("ALTER TABLE property ADD COLUMN image_data TEXT"))
+            conn.commit()
+            logger.info("image_data column added.")
+        else:
+            logger.info("image_data column already exists.")
 
     logger.info("Database migration completed successfully!")
 

@@ -2,6 +2,7 @@
 import type { CrawlConfig, CrawlState, SavedSearch, ExtractedSavedSearch } from './types';
 import * as crawler from './services/crawler';
 import * as storage from './services/storage';
+import * as api from './services/api';
 
 // Initialize extension on install
 chrome.runtime.onInstalled.addListener(() => {
@@ -200,7 +201,7 @@ async function handleGetSearches() {
   }
 }
 
-// Handle save searches - saves to local storage only
+// Handle save searches - saves to local storage and syncs with backend
 async function handleSaveSearches(payload: { searches: ExtractedSavedSearch[] }) {
   try {
     // Convert extracted searches to SavedSearch format with IDs
@@ -220,10 +221,51 @@ async function handleSaveSearches(payload: { searches: ExtractedSavedSearch[] })
         last_crawled_at: existing?.last_crawled_at,
       };
     });
-    
+
     await storage.saveSavedSearches(searches);
     addLogEntry(`Saved ${searches.length} searches to local storage`, 'success');
-    
+
+    // Sync with backend
+    try {
+      // Map local search format to backend format
+      const backendSearches = searches.map(s => ({
+        external_search_id: s.external_id,
+        name: s.name,
+        url_path: s.url,
+        full_url: s.full_url,
+        description: s.description,
+        result_count: s.result_count,
+      }));
+
+      const syncResult = await api.syncSavedSearches({ searches: backendSearches as any });
+      addLogEntry(`Synced ${syncResult.synced} searches with backend (${syncResult.created} created, ${syncResult.updated} updated)`, 'success');
+
+      // Fetch updated searches from backend to get their IDs
+      const fetchedSearches = await api.getSavedSearches();
+
+      // Update local searches with backend IDs
+      // Note: Backend returns external_search_id, we map it to external_id
+      const updatedSearches = searches.map(localSearch => {
+        const backendSearch = fetchedSearches.find(s =>
+          (s as any).external_search_id === localSearch.external_id || s.external_id === localSearch.external_id
+        );
+        if (backendSearch) {
+          return {
+            ...localSearch,
+            id: backendSearch.id, // Use backend ID for future API calls
+          };
+        }
+        return localSearch;
+      });
+
+      await storage.saveSavedSearches(updatedSearches);
+      addLogEntry(`Updated local searches with backend IDs`, 'success');
+    } catch (syncError) {
+      console.error('Failed to sync searches with backend:', syncError);
+      addLogEntry(`Failed to sync searches: ${(syncError as Error).message}`, 'error');
+      // Continue anyway - searches are saved locally
+    }
+
     return { success: true, searches };
   } catch (error) {
     console.error('Failed to save searches:', error);

@@ -80,6 +80,7 @@ class Property(Base):
     has_elevator: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     property_url: Mapped[str] = mapped_column(String(500), nullable=False)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    image_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     email_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("email_source.id"), nullable=True
     )
@@ -105,6 +106,7 @@ class Property(Base):
         DateTime, default=datetime.utcnow, nullable=False
     )
     missing_since: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    sold_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     email: Mapped[Optional["EmailSource"]] = relationship(back_populates="properties")

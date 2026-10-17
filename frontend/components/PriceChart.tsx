@@ -78,7 +78,7 @@ export function PriceChart({ distribution }: PriceChartProps) {
               {distribution.total_properties === 1 ? 'Property' : 'Properties'} at
             </p>
             <p className="text-xl font-semibold text-foreground">
-              {formatCurrency(bucket.bucket_min)}
+              {formatCurrency(bucket.min)}
             </p>
           </div>
         </div>
@@ -88,12 +88,12 @@ export function PriceChart({ distribution }: PriceChartProps) {
 
   // Format data for chart
   const chartData: ChartDataPoint[] = distribution.buckets.map((bucket) => {
-    const range = formatCurrency(bucket.bucket_min);
-    const fullRange = `${formatCurrency(bucket.bucket_min)} - ${formatCurrency(bucket.bucket_max)}`;
+    const range = formatCurrency(bucket.min);
+    const fullRange = `${formatCurrency(bucket.min)} - ${formatCurrency(bucket.max)}`;
     return {
       range,
-      min: bucket.bucket_min,
-      max: bucket.bucket_max,
+      min: bucket.min,
+      max: bucket.max,
       count: bucket.count,
       fullRange
     };

@@ -96,23 +96,50 @@ def increment_error_count(db: Session, session_id: int) -> None:
         db.commit()
 
 
+def _resolve_search_id(db: Session, search_id: int, external_search_id: str = None) -> int:
+    """Resolve a search_id to a valid database SavedSearch ID.
+    
+    Tries to find by the provided ID first, then by external_search_id.
+    Returns the database ID of the resolved search, or the original search_id
+    if no resolution is possible.
+    """
+    from src.database.models import SavedSearch as SavedSearchModel
+
+    search = db.query(SavedSearchModel).filter(SavedSearchModel.id == search_id).first()
+    if search:
+        return search.id
+
+    if external_search_id:
+        search = db.query(SavedSearchModel).filter(
+            SavedSearchModel.external_search_id == external_search_id
+        ).first()
+        if search:
+            return search.id
+
+    return search_id
+
+
 def detect_missing_properties(
     db: Session,
     session_id: int,
     search_id: int,
     current_property_external_ids: List[str],
+    external_search_id: str = None,
 ) -> dict:
     """Detect properties that are no longer visible in a search.
     
     Returns:
         dict with counts: missing_detected, marked_as_missing
     """
-    # Get properties previously seen in this search
     from sqlalchemy import distinct
-    
+
+    # Resolve search_id to the correct database ID
+    resolved_search_id = _resolve_search_id(db, search_id, external_search_id)
+
+    # Get properties previously seen in this search
     previous_properties = (
         db.query(distinct(PropertyVisibility.property_id))
-        .filter(PropertyVisibility.saved_search_id == search_id)
+        .filter(PropertyVisibility.saved_search_id == resolved_search_id)
         .filter(PropertyVisibility.event_type == "seen")
         .all()
     )
@@ -140,15 +167,15 @@ def detect_missing_properties(
             event_type="missing",
             property_id=prop_id,
             crawl_session_id=session_id,
-            saved_search_id=search_id,
+            saved_search_id=resolved_search_id,
         )
         db.add(visibility)
         
-        # Check if property exists in ANY other search
+        # Check if property exists in ANY other search (within 30 days)
         other_searches = (
             db.query(PropertyVisibility)
             .filter(PropertyVisibility.property_id == prop_id)
-            .filter(PropertyVisibility.saved_search_id != search_id)
+            .filter(PropertyVisibility.saved_search_id != resolved_search_id)
             .filter(PropertyVisibility.event_type == "seen")
             .filter(
                 PropertyVisibility.timestamp > (datetime.utcnow() - timedelta(days=30))
@@ -167,8 +194,9 @@ def detect_missing_properties(
         # Check for sold status (missing > 30 days)
         if prop and prop.missing_since:
             days_missing = (datetime.utcnow() - prop.missing_since).days
-            if days_missing > 30:
+            if days_missing > 30 and prop.status == "missing":
                 prop.status = "sold"
+                prop.sold_at = datetime.utcnow()
     
     db.commit()
     

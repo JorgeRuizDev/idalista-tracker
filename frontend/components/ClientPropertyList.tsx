@@ -1,33 +1,66 @@
 "use client";
 
 /**
- * Client-side Property List with Pagination
+ * Client-side Property List with Pagination and Filtering
  * Handles pagination state client-side for static export compatibility
  */
 
 import { useState, useMemo } from 'react';
-import { Property, PaginatedProperties, PaginationInfo } from '@/types/property';
+import { Property, PaginatedProperties, PaginationInfo, FilterState, SortOption } from '@/types/property';
 import { PropertyCard } from './PropertyCard';
-import { Pagination } from './Pagination';
+import { filterProperties } from '@/lib/filters';
+import { sortProperties } from '@/lib/sorting';
+import { EmptyState } from './EmptyState';
+import { cn } from '@/lib/utils';
 
 interface ClientPropertyListProps {
   properties: Property[];
   pageSize?: number;
+  filters?: FilterState;
+  sort?: SortOption;
+  onClearFilters?: () => void;
 }
 
-export function ClientPropertyList({ properties, pageSize = 20 }: ClientPropertyListProps) {
+export function ClientPropertyList({ 
+  properties, 
+  pageSize = 20, 
+  filters,
+  sort,
+  onClearFilters 
+}: ClientPropertyListProps) {
   const [currentPage, setCurrentPage] = useState(1);
   
+  // Apply filters
+  const filteredProperties = useMemo(() => {
+    if (!filters || Object.keys(filters).length === 0) {
+      return properties;
+    }
+    return filterProperties(properties, filters);
+  }, [properties, filters]);
+  
+  // Apply sorting
+  const sortedProperties = useMemo(() => {
+    if (!sort) {
+      return filteredProperties;
+    }
+    return sortProperties(filteredProperties, sort);
+  }, [filteredProperties, sort]);
+  
   // Calculate pagination
-  const totalProperties = properties.length;
+  const totalProperties = sortedProperties.length;
   const totalPages = Math.ceil(totalProperties / pageSize);
+  
+  // Reset to first page when filters change
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [filters, sort]);
   
   // Get current page properties
   const paginatedProperties = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     const end = start + pageSize;
-    return properties.slice(start, end);
-  }, [properties, currentPage, pageSize]);
+    return sortedProperties.slice(start, end);
+  }, [sortedProperties, currentPage, pageSize]);
   
   const pagination: PaginationInfo = {
     current_page: currentPage,
@@ -47,17 +80,20 @@ export function ClientPropertyList({ properties, pageSize = 20 }: ClientProperty
   
   if (properties.length === 0) {
     return (
-      <div className="text-center py-12">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted mb-4">
-          <svg className="w-8 h-8 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-foreground mb-1">No properties found</h3>
-        <p className="text-sm text-muted-foreground">
-          There are no properties available at the moment.
-        </p>
-      </div>
+      <EmptyState
+        title="No properties found"
+        description="There are no properties available at the moment."
+      />
+    );
+  }
+  
+  if (filteredProperties.length === 0) {
+    return (
+      <EmptyState
+        title="No properties match your filters"
+        description="Try adjusting your filters to see more results."
+        onClearFilters={onClearFilters}
+      />
     );
   }
   
@@ -67,6 +103,11 @@ export function ClientPropertyList({ properties, pageSize = 20 }: ClientProperty
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <p>
           Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalProperties)} of {totalProperties} properties
+          {filters && Object.keys(filters).length > 0 && properties.length !== filteredProperties.length && (
+            <span className="ml-2 text-xs">
+              (filtered from {properties.length})
+            </span>
+          )}
         </p>
       </div>
       
@@ -79,61 +120,73 @@ export function ClientPropertyList({ properties, pageSize = 20 }: ClientProperty
       
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="pt-6 border-t border-border">
-          <nav aria-label="Pagination" className="flex items-center justify-center gap-2">
+        <div className="pt-4 border-t border-border">
+          <nav aria-label="Pagination" className="flex items-center justify-center gap-1">
             {/* Previous Button */}
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={!pagination.has_previous}
-              className={`
-                inline-flex items-center justify-center px-3 py-2 text-sm font-medium rounded-md transition-colors
-                min-w-[80px] sm:min-w-[100px]
-                ${pagination.has_previous
+              className={cn(
+                'inline-flex items-center justify-center px-2 py-1.5 text-xs font-medium rounded-md transition-colors min-w-[32px] h-8',
+                pagination.has_previous
                   ? 'text-foreground bg-white border border-border hover:bg-muted'
                   : 'text-muted-foreground bg-muted cursor-not-allowed'
-                }
-              `}
+              )}
             >
-              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              <span className="hidden sm:inline">Previous</span>
             </button>
             
             {/* Page Numbers */}
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  onClick={() => handlePageChange(page)}
-                  className={`
-                    inline-flex items-center justify-center min-w-[36px] sm:min-w-[40px] h-9 text-sm font-medium rounded-md transition-colors
-                    ${currentPage === page
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-foreground bg-white border border-border hover:bg-muted'
-                    }
-                  `}
-                >
-                  {page}
-                </button>
-              ))}
-            </div>
+            {(() => {
+              const pages: (number | string)[] = [];
+              const maxVisible = 5;
+              
+              if (totalPages <= maxVisible + 2) {
+                for (let i = 1; i <= totalPages; i++) pages.push(i);
+              } else {
+                pages.push(1);
+                if (currentPage > 3) pages.push('...');
+                const start = Math.max(2, currentPage - 1);
+                const end = Math.min(totalPages - 1, currentPage + 1);
+                for (let i = start; i <= end; i++) pages.push(i);
+                if (currentPage < totalPages - 2) pages.push('...');
+                pages.push(totalPages);
+              }
+              
+              return pages.map((page, i) =>
+                page === '...' ? (
+                  <span key={`dots-${i}`} className="px-1 text-xs text-muted-foreground">...</span>
+                ) : (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page as number)}
+                    className={cn(
+                      'inline-flex items-center justify-center w-8 h-8 text-xs font-medium rounded-md transition-colors',
+                      currentPage === page
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground bg-white border border-border hover:bg-muted'
+                    )}
+                  >
+                    {page}
+                  </button>
+                )
+              );
+            })()}
             
             {/* Next Button */}
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={!pagination.has_next}
-              className={`
-                inline-flex items-center justify-center px-3 py-2 text-sm font-medium rounded-md transition-colors
-                min-w-[80px] sm:min-w-[100px]
-                ${pagination.has_next
+              className={cn(
+                'inline-flex items-center justify-center px-2 py-1.5 text-xs font-medium rounded-md transition-colors min-w-[32px] h-8',
+                pagination.has_next
                   ? 'text-foreground bg-white border border-border hover:bg-muted'
                   : 'text-muted-foreground bg-muted cursor-not-allowed'
-                }
-              `}
+              )}
             >
-              <span className="hidden sm:inline">Next</span>
-              <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>

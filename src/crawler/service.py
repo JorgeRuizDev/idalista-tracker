@@ -9,6 +9,7 @@ from src.config import settings
 from src.crawler.imap_client import EmailMessage, IMAPClient
 from src.crawler.parser import EmailParser, ParsedProperty
 from src.database.models import EmailSource, PriceHistory, Property
+from src.services.property_service import PropertyService
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,9 @@ class CrawlerService:
         )
         self.db.add(price_history)
 
+        # Download and store image
+        PropertyService.download_and_store_image(property_obj)
+
         logger.info(f"Created new property: {parsed.idealista_id} - {parsed.title[:50]}...")
         return property_obj
 
@@ -248,6 +252,12 @@ class CrawlerService:
         Returns:
             True if property was updated.
         """
+        # Reactivate if property was previously marked as missing/sold
+        if existing.status in ("missing", "sold"):
+            existing.status = "active"
+            existing.missing_since = None
+            existing.is_active = True
+
         # Check if price changed
         if existing.current_price == parsed.current_price:
             logger.debug(f"Property {parsed.idealista_id} price unchanged")
@@ -272,6 +282,10 @@ class CrawlerService:
             existing.price_drop_percentage = round(drop_pct, 2)
 
         existing.updated_at = datetime.utcnow()
+
+        # Download image if we have URL but no data yet
+        if existing.image_url and not existing.image_data:
+            PropertyService.download_and_store_image(existing)
 
         # Create price history entry
         price_history = PriceHistory(

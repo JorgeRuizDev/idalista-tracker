@@ -223,7 +223,7 @@ async function crawlLoop(): Promise<void> {
  */
 async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Promise<void> {
   console.log(`Crawling search: ${search.name}`);
-  
+
   // Update state with current search
   let state = await storage.getCrawlState();
   if (state) {
@@ -231,38 +231,39 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
     state.current_page = 1;
     await storage.saveCrawlState(state);
   }
-  
+
   let currentUrl = search.full_url;
   let pageCount = 0;
   const maxPages = 100; // Safety limit
-  
+  const allPropertyIds: string[] = []; // Track all property IDs seen in this search
+
   console.log(`Starting crawl for ${search.name} at ${currentUrl}`);
-  
+
   while (currentUrl && pageCount < maxPages) {
     if (!isRunning || abortController?.signal.aborted) {
       console.log('Crawl paused or aborted, breaking loop');
       break;
     }
-    
+
     console.log(`Navigating to page ${pageCount + 1}: ${currentUrl}`);
-    
+
     // Navigate to page
     const tab = await navigateToUrl(currentUrl);
     if (!tab.id) {
       console.error('Failed to get tab ID after navigation');
       break;
     }
-    
+
     // Wait for page load with human-like delay
     if (config?.human_like_enabled) {
       const delay = getRandomDelay(config.min_page_delay, config.max_page_delay);
       console.log(`Waiting ${delay}ms for page load...`);
       await sleep(delay);
     }
-    
+
     // Wait a bit more for content script to be ready
     await sleep(1000);
-    
+
     // Extract listings
     let pageData;
     try {
@@ -280,11 +281,15 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
         break;
       }
     }
-    
+
     if (pageData?.listings && pageData.listings.length > 0) {
+      // Track property IDs for missing detection
+      const pagePropertyIds = pageData.listings.map((l: Property) => l.external_id);
+      allPropertyIds.push(...pagePropertyIds);
+
       // Submit batch
       await submitBatch(search, pageData.listings, pageCount + 1);
-      
+
       // Update stats
       state = await storage.getCrawlState();
       if (state) {
@@ -295,19 +300,19 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
     } else {
       console.log('No listings found on this page');
     }
-    
+
     // Check for next page
     if (pageData?.pagination?.has_next_page && pageData.pagination.next_page_url) {
       currentUrl = pageData.pagination.next_page_url;
       pageCount++;
-      
+
       // Update current page in state
       state = await storage.getCrawlState();
       if (state) {
         state.current_page = pageCount + 1;
         await storage.saveCrawlState(state);
       }
-      
+
       // Navigation delay
       if (config?.human_like_enabled) {
         const delay = getRandomDelay(config.min_navigation_delay, config.max_navigation_delay);
@@ -319,11 +324,26 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
       break;
     }
   }
-  
-  console.log(`Finished crawling ${search.name}, processed ${pageCount} pages`);
-  
-  // Detect missing properties
-  // TODO: Implement missing property detection
+
+  console.log(`Finished crawling ${search.name}, processed ${pageCount} pages, found ${allPropertyIds.length} properties`);
+
+  // Detect missing properties after completing the search
+  if (currentSessionId && allPropertyIds.length > 0) {
+    try {
+      console.log(`Detecting missing properties for search ${search.name} (ID: ${search.id})...`);
+      const result = await api.detectMissingProperties(
+        currentSessionId,
+        search.id,
+        allPropertyIds,
+        search.external_id
+      );
+      console.log(`Missing detection complete: ${result.missing_detected} missing detected, ${result.marked_as_missing} marked as missing`);
+    } catch (error) {
+      console.error('Failed to detect missing properties:', error);
+    }
+  } else {
+    console.log('Skipping missing detection: no session ID or no properties found');
+  }
 }
 
 /**

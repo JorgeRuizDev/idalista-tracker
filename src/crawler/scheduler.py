@@ -55,21 +55,23 @@ def init_scheduler() -> AsyncIOScheduler:
     """
     sched = get_scheduler()
 
-    # Add the crawl job
-    trigger = IntervalTrigger(hours=settings.CRAWL_INTERVAL_HOURS)
+    # Email crawler is DISABLED - only extension crawler is used
+    # To re-enable email crawling, uncomment the following block:
+    #
+    # trigger = IntervalTrigger(hours=settings.CRAWL_INTERVAL_HOURS)
+    # sched.add_job(
+    #     scheduled_crawl,
+    #     trigger=trigger,
+    #     id="property_crawl",
+    #     name="Property Email Crawl",
+    #     replace_existing=True,
+    #     next_run_time=datetime.utcnow() + timedelta(minutes=1),
+    # )
+    # logger.info(
+    #     f"Scheduler initialized with {settings.CRAWL_INTERVAL_HOURS} hour interval"
+    # )
 
-    sched.add_job(
-        scheduled_crawl,
-        trigger=trigger,
-        id="property_crawl",
-        name="Property Email Crawl",
-        replace_existing=True,
-        next_run_time=datetime.utcnow() + timedelta(minutes=1),  # Start 1 minute after startup
-    )
-
-    logger.info(
-        f"Scheduler initialized with {settings.CRAWL_INTERVAL_HOURS} hour interval"
-    )
+    logger.info("Email crawler scheduler is DISABLED - extension crawler only")
 
     return sched
 

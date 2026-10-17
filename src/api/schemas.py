@@ -43,6 +43,8 @@ class PropertyBase(BaseModel):
     floor: Optional[str] = None
     has_elevator: Optional[bool] = None
     property_url: str
+    image_url: Optional[str] = None
+    image_data: Optional[str] = None
 
 
 class PropertyCreate(PropertyBase):
@@ -57,9 +59,15 @@ class PropertyResponse(PropertyBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    missing_since: Optional[datetime] = None
+    sold_at: Optional[datetime] = None
+    status: str = "active"
     created_at: datetime
     updated_at: datetime
     is_active: bool
+    price_history_count: int = 0
 
 
 class PropertyDetailResponse(PropertyResponse):
@@ -90,6 +98,8 @@ class PropertyPriceDropResponse(BaseModel):
     current_price: int
     price_drop_percentage: Optional[float]
     property_url: str
+    image_url: Optional[str] = None
+    image_data: Optional[str] = None
     updated_at: datetime
 
 
@@ -188,7 +198,11 @@ class StatsResponse(BaseModel):
 
     total_properties: int
     active_properties: int
+    missing_properties: int = 0
+    sold_properties: int = 0
+    avg_days_to_sell: Optional[float] = None
     properties_with_price_drops: int
+    properties_with_price_history: int
     average_price: float
     price_range: PriceRange
     last_crawl: LastCrawl
@@ -426,6 +440,7 @@ class DetectMissingRequest(BaseModel):
     """Request schema for detecting missing properties."""
 
     current_property_external_ids: List[str]
+    external_search_id: Optional[str] = None
 
 
 class DetectMissingResponse(BaseModel):
@@ -434,3 +449,63 @@ class DetectMissingResponse(BaseModel):
     missing_detected: int
     marked_as_missing: int
     properties: List[dict] = []
+
+
+# ============= Crawl History Schemas =============
+
+
+class CrawlHistoryEntry(BaseModel):
+    """Single crawl history entry aggregated by date."""
+
+    date: str
+    new_properties: int = 0
+    new_inactives: int = 0
+    price_drops: int = 0
+    price_increases: int = 0
+    avg_drop_amount: Optional[float] = None
+    avg_increase_amount: Optional[float] = None
+
+
+class CrawlHistoryResponse(BaseModel):
+    """Response schema for crawl history."""
+
+    entries: List[CrawlHistoryEntry]
+
+
+class CrawlHistoryPropertySummary(BaseModel):
+    """Summary of a property in crawl history detail."""
+
+    id: int
+    idealista_id: str
+    title: str
+    location: str
+    current_price: int
+    status: str
+    property_url: str
+
+
+class CrawlHistoryPriceDropDetail(CrawlHistoryPropertySummary):
+    """Property with a price drop on a specific date."""
+
+    old_price: Optional[int] = None
+    new_price: Optional[int] = None
+    drop_amount: Optional[int] = None
+
+
+class CrawlHistoryPriceIncreaseDetail(CrawlHistoryPropertySummary):
+    """Property with a price increase on a specific date."""
+
+    old_price: Optional[int] = None
+    new_price: Optional[int] = None
+    increase_amount: Optional[int] = None
+
+
+class CrawlHistoryDetailResponse(BaseModel):
+    """Response schema for crawl history detail on a specific date."""
+
+    date: str
+    new_properties: List[CrawlHistoryPropertySummary] = []
+    price_drops: List[CrawlHistoryPriceDropDetail] = []
+    price_increases: List[CrawlHistoryPriceIncreaseDetail] = []
+    new_missing: List[CrawlHistoryPropertySummary] = []
+    new_sold: List[CrawlHistoryPropertySummary] = []

@@ -1,7 +1,10 @@
 """Property API routes."""
+import base64
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
@@ -13,6 +16,7 @@ from src.api.schemas import (
     PropertyPriceDropListResponse,
     PropertyResponse,
 )
+from src.database.models import Property
 from src.services.property_service import PropertyService
 
 router = APIRouter(prefix="/properties", tags=["properties"])
@@ -27,7 +31,7 @@ async def list_properties(
     has_price_drop: Optional[bool] = Query(None, description="Filter for price drops only"),
     sort_by: str = Query("created_at", description="Sort field: price, created_at, price_drop"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
-    limit: int = Query(100, ge=1, le=1000, description="Max results"),
+    limit: int = Query(100, ge=1, le=10000, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
 ) -> PropertyListResponse:
@@ -100,6 +104,36 @@ async def get_price_drops(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/{idealista_id}/image")
+async def get_property_image(
+    idealista_id: str,
+    db: Session = Depends(get_db),
+):
+    """Serve a property's downloaded image.
+
+    Falls back to redirecting to the original image_url if no local copy exists.
+    """
+    from fastapi.responses import RedirectResponse
+
+    prop = db.query(Property).filter(Property.idealista_id == idealista_id).first()
+
+    if not prop:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
+
+    if prop.image_data:
+        # Parse the data URL: data:image/jpeg;base64,xxxx
+        match = re.match(r"data:(.+);base64,(.+)", prop.image_data)
+        if match:
+            media_type = match.group(1)
+            raw_bytes = base64.b64decode(match.group(2))
+            return Response(content=raw_bytes, media_type=media_type)
+
+    if prop.image_url:
+        return RedirectResponse(url=prop.image_url)
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No image available")
 
 
 @router.get("/{idealista_id}", response_model=PropertyDetailResponse)

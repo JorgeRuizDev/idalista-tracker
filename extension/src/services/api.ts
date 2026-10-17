@@ -151,11 +151,15 @@ export async function syncSavedSearches(
 export async function detectMissingProperties(
   sessionId: number,
   searchId: number,
-  currentPropertyExternalIds: string[]
+  currentPropertyExternalIds: string[],
+  externalSearchId?: string
 ): Promise<{ missing_detected: number; marked_as_missing: number }> {
   return apiRequest(`/crawl/sessions/${sessionId}/searches/${searchId}/detect-missing`, {
     method: 'POST',
-    body: JSON.stringify({ current_property_external_ids: currentPropertyExternalIds }),
+    body: JSON.stringify({
+      current_property_external_ids: currentPropertyExternalIds,
+      external_search_id: externalSearchId || null,
+    }),
   });
 }
 

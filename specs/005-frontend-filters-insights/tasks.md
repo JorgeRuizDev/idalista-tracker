@@ -24,9 +24,9 @@
 
 **Purpose**: Project initialization and basic structure for new components
 
-- [ ] T001 [P] Create `frontend/hooks/` directory for custom React hooks
-- [ ] T002 [P] Create `frontend/components/` subdirectories if not exist
-- [ ] T003 [P] Verify existing TypeScript types file at `frontend/types/property.ts`
+- [X] T001 [P] Create `frontend/hooks/` directory for custom React hooks
+- [X] T002 [P] Create `frontend/components/` subdirectories if not exist
+- [X] T003 [P] Verify existing TypeScript types file at `frontend/types/property.ts`
 
 ---
 
@@ -38,18 +38,18 @@
 
 ### Type Definitions (All Stories Depend On These)
 
-- [ ] T004 Update `frontend/types/property.ts` - Add FilterState interface with priceMin, priceMax, location, bedroomsMin, bedroomsMax, hasPriceChange fields
-- [ ] T005 [P] Update `frontend/types/property.ts` - Add SortOption interface with field and direction
-- [ ] T006 [P] Update `frontend/types/property.ts` - Add PriceChangeInfo interface with amount, percentage, direction, changedAt
-- [ ] T007 [P] Update `frontend/types/property.ts` - Add InsightStats and PriceBucket interfaces
+- [X] T004 Update `frontend/types/property.ts` - Add FilterState interface with priceMin, priceMax, location, bedroomsMin, bedroomsMax, hasPriceChange fields
+- [X] T005 [P] Update `frontend/types/property.ts` - Add SortOption interface with field and direction
+- [X] T006 [P] Update `frontend/types/property.ts` - Add PriceChangeInfo interface with amount, percentage, direction, changedAt
+- [X] T007 [P] Update `frontend/types/property.ts` - Add InsightStats and PriceBucket interfaces
 
 ### URL State Management Hook (All Stories Depend On This)
 
-- [ ] T008 Implement `frontend/hooks/useFilters.ts` - Custom hook for URL query param synchronization with FilterState
+- [X] T008 Implement `frontend/hooks/useFilters.ts` - Custom hook for URL query param synchronization with FilterState
 
 ### Database Query Update
 
-- [ ] T009 Update `frontend/lib/db.ts` - Modify property query to JOIN with latest price_history record for each property
+- [X] T009 Update `frontend/lib/db.ts` - Modify property query to JOIN with latest price_history record for each property
 
 **Checkpoint**: Foundation ready - type definitions, URL state hook, and database query updated. User story implementation can now begin in parallel.
 
@@ -63,11 +63,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T010 [P] Create `frontend/lib/filters.ts` - Implement filter logic utilities (matchesPriceRange, matchesLocation, matchesBedrooms, hasPriceChange)
-- [ ] T011 [US1] Create `frontend/components/FilterPanel.tsx` - Filter UI with price range inputs, location multi-select, bedroom range inputs, price change checkbox
-- [ ] T012 [US1] Update `frontend/app/page.tsx` - Integrate FilterPanel with useFilters hook and filter application logic
-- [ ] T013 [US1] Create empty state component for `frontend/components/EmptyState.tsx` - Display when no properties match filters
-- [ ] T014 [US1] Add "Clear All" button to FilterPanel component in `frontend/components/FilterPanel.tsx`
+- [X] T010 [P] Create `frontend/lib/filters.ts` - Implement filter logic utilities (matchesPriceRange, matchesLocation, matchesBedrooms, hasPriceChange)
+- [X] T011 [US1] Create `frontend/components/FilterPanel.tsx` - Filter UI with price range inputs, location multi-select, bedroom range inputs, price change checkbox
+- [X] T012 [US1] Update `frontend/app/page.tsx` - Integrate FilterPanel with useFilters hook and filter application logic
+- [X] T013 [US1] Create empty state component for `frontend/components/EmptyState.tsx` - Display when no properties match filters
+- [X] T014 [US1] Add "Clear All" button to FilterPanel component in `frontend/components/FilterPanel.tsx`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. Filters work, clear button works, empty state displays correctly.
 
@@ -81,10 +81,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [P] Create `frontend/lib/sorting.ts` - Implement sort utilities (byPriceAsc, byPriceDesc, byDateDesc, byPriceChange)
-- [ ] T016 [US2] Create `frontend/components/SortDropdown.tsx` - Dropdown UI for sort options with labels
-- [ ] T017 [US2] Update `frontend/app/page.tsx` - Integrate SortDropdown with sorting logic and combine with existing filters
-- [ ] T018 [US2] Ensure sort state persists in URL via useFilters hook extension in `frontend/hooks/useFilters.ts`
+- [X] T015 [P] Create `frontend/lib/sorting.ts` - Implement sort utilities (byPriceAsc, byPriceDesc, byDateDesc, byPriceChange)
+- [X] T016 [US2] Create `frontend/components/SortDropdown.tsx` - Dropdown UI for sort options with labels
+- [X] T017 [US2] Update `frontend/app/page.tsx` - Integrate SortDropdown with sorting logic and combine with existing filters
+- [X] T018 [US2] Ensure sort state persists in URL via useFilters hook extension in `frontend/hooks/useFilters.ts`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently. Users can filter AND sort together.
 
@@ -98,11 +98,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 [P] Create `frontend/components/ImageThumbnail.tsx` - Lazy-loaded image component using Next.js Image with blur placeholder
-- [ ] T020 [P] Create placeholder SVG or icon for missing images in `frontend/components/ImageThumbnail.tsx`
-- [ ] T021 [US3] Update `frontend/components/PropertyCard.tsx` - Integrate ImageThumbnail component into property card layout
-- [ ] T022 [US3] Add responsive image sizing with Tailwind classes in `frontend/components/PropertyCard.tsx`
-- [ ] T023 [US3] Add error handling for broken image URLs in `frontend/components/ImageThumbnail.tsx`
+- [X] T019 [P] Create `frontend/components/ImageThumbnail.tsx` - Lazy-loaded image component using Next.js Image with blur placeholder
+- [X] T020 [P] Create placeholder SVG or icon for missing images in `frontend/components/ImageThumbnail.tsx`
+- [X] T021 [US3] Update `frontend/components/PropertyCard.tsx` - Integrate ImageThumbnail component into property card layout
+- [X] T022 [US3] Add responsive image sizing with Tailwind classes in `frontend/components/PropertyCard.tsx`
+- [X] T023 [US3] Add error handling for broken image URLs in `frontend/components/ImageThumbnail.tsx`
 
 **Checkpoint**: At this point, User Story 3 works independently. Property cards show images/placeholders responsively.
 
@@ -116,11 +116,11 @@
 
 ### Implementation for User Story 4
 
-- [ ] T024 [P] Create `frontend/components/PriceChange.tsx` - Price change indicator component with color-coded arrows (green ↓, red ↑)
-- [ ] T025 [P] Implement price change calculation logic in `frontend/lib/utils.ts` - Calculate percentage from current price and price history
-- [ ] T026 [US4] Update `frontend/components/PropertyCard.tsx` - Integrate PriceChange component next to price display
-- [ ] T027 [US4] Style PriceChange component smaller than price text using Tailwind in `frontend/components/PriceChange.tsx`
-- [ ] T028 [US4] Add tooltip showing change date on hover in `frontend/components/PriceChange.tsx`
+- [X] T024 [P] Create `frontend/components/PriceChange.tsx` - Price change indicator component with color-coded arrows (green ↓, red ↑)
+- [X] T025 [P] Implement price change calculation logic in `frontend/lib/utils.ts` - Calculate percentage from current price and price history
+- [X] T026 [US4] Update `frontend/components/PropertyCard.tsx` - Integrate PriceChange component next to price display
+- [X] T027 [US4] Style PriceChange component smaller than price text using Tailwind in `frontend/components/PriceChange.tsx`
+- [X] T028 [US4] Add tooltip showing change date on hover in `frontend/components/PriceChange.tsx`
 
 **Checkpoint**: At this point, User Story 4 works independently. Price change indicators display correctly with proper colors and sizing.
 
@@ -134,13 +134,13 @@
 
 ### Implementation for User Story 5
 
-- [ ] T029 [P] Create `frontend/lib/stats.ts` - Statistics calculation utilities (calculateAvgPrice, calculatePriceRange, calculateAvgPriceChange, generatePriceBuckets)
-- [ ] T030 [P] Create `frontend/components/StatsCard.tsx` - Individual stat display component in `frontend/components/StatsCard.tsx`
-- [ ] T031 [P] Create `frontend/components/InsightsChart.tsx` - Price distribution histogram using Recharts in `frontend/components/InsightsChart.tsx`
-- [ ] T032 [US5] Create `frontend/app/insights/page.tsx` - Insights page with stats cards and chart
-- [ ] T033 [US5] Add FilterPanel to insights page in `frontend/app/insights/page.tsx` for filter modification
-- [ ] T034 [US5] Add "View Insights" button to main page in `frontend/app/page.tsx`
-- [ ] T035 [US5] Ensure filter/sort state persists between list and insights pages via URL in `frontend/hooks/useFilters.ts`
+- [X] T029 [P] Create `frontend/lib/stats.ts` - Statistics calculation utilities (calculateAvgPrice, calculatePriceRange, calculateAvgPriceChange, generatePriceBuckets)
+- [X] T030 [P] Create `frontend/components/StatsCard.tsx` - Individual stat display component in `frontend/components/StatsCard.tsx`
+- [X] T031 [P] Create `frontend/components/InsightsChart.tsx` - Price distribution histogram using Recharts in `frontend/components/InsightsChart.tsx`
+- [X] T032 [US5] Create `frontend/app/insights/page.tsx` - Insights page with stats cards and chart
+- [X] T033 [US5] Add FilterPanel to insights page in `frontend/app/insights/page.tsx` for filter modification
+- [X] T034 [US5] Add "View Insights" button to main page in `frontend/app/page.tsx`
+- [X] T035 [US5] Ensure filter/sort state persists between list and insights pages via URL in `frontend/hooks/useFilters.ts`
 
 **Checkpoint**: All user stories should now be independently functional.
 
@@ -150,12 +150,12 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T036 [P] Update `frontend/app/layout.tsx` - Add any shared providers if needed
-- [ ] T037 [P] Verify mobile responsiveness across all components with Tailwind breakpoints
-- [ ] T038 [P] Add keyboard navigation and ARIA labels to FilterPanel and SortDropdown
-- [ ] T039 [P] Code cleanup and remove any debug console.log statements
-- [ ] T040 [P] Run quickstart.md validation - test all user flows
-- [ ] T041 Update `AGENTS.md` reference if needed after implementation
+- [X] T036 [P] Update `frontend/app/layout.tsx` - Add any shared providers if needed
+- [X] T037 [P] Verify mobile responsiveness across all components with Tailwind breakpoints
+- [X] T038 [P] Add keyboard navigation and ARIA labels to FilterPanel and SortDropdown
+- [X] T039 [P] Code cleanup and remove any debug console.log statements
+- [X] T040 [P] Run quickstart.md validation - test all user flows
+- [X] T041 Update `AGENTS.md` reference if needed after implementation
 
 ---
 

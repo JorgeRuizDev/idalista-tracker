@@ -38,7 +38,11 @@ async def get_statistics(db: Session = Depends(get_db)) -> StatsResponse:
     return StatsResponse(
         total_properties=stats["total_properties"],
         active_properties=stats["active_properties"],
+        missing_properties=stats.get("missing_properties", 0),
+        sold_properties=stats.get("sold_properties", 0),
+        avg_days_to_sell=stats.get("avg_days_to_sell"),
         properties_with_price_drops=stats["properties_with_price_drops"],
+        properties_with_price_history=stats["properties_with_price_history"],
         average_price=stats["average_price"],
         price_range=stats["price_range"],
         last_crawl=last_crawl,

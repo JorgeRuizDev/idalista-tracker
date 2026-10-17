@@ -62,3 +62,11 @@ extension/.env*
 extension/*.log
 extension/coverage/
 extension/.vite/
+
+# Frontend / Next.js
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+frontend/*.log
+frontend/coverage/
+frontend/.next/
