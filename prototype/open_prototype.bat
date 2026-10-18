@@ -1,0 +1,3 @@
+@echo off
+echo Abriendo el prototipo Urbana Pulse en tu navegador predeterminado...
+start index.html

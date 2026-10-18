@@ -219,6 +219,10 @@ class CrawlerService:
             image_url=parsed.image_url,
             email_id=email_id,
             is_active=True,
+            detail_status="pending",
+            backend_attempts=0,
+            extension_attempts=0,
+            fallback_to_extension=False,
         )
         self.db.add(property_obj)
         self.db.flush()

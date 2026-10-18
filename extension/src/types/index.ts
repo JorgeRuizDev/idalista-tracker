@@ -294,3 +294,46 @@ export interface PaginationInfo {
   next_page_url?: string;
   total_pages?: number;
 }
+
+/** Photo item in detail crawl snapshot */
+export interface DetailPhotoItem {
+  original_url: string;
+  sequence_index: number;
+  caption?: string;
+}
+
+/** Full property snapshot payload extracted by extension */
+export interface DetailSnapshotPayload {
+  source_engine: string;
+  full_description?: string;
+  neighborhood?: string;
+  district?: string;
+  city?: string;
+  province?: string;
+  latitude?: number;
+  longitude?: number;
+  features?: Record<string, any>;
+  photos: DetailPhotoItem[];
+  delisted?: boolean;
+}
+
+/** Listing pending detail crawl from server queue */
+export interface PendingDetailListing {
+  property_id: number;
+  idealista_id: string;
+  property_url: string;
+  extension_attempts: number;
+}
+
+export interface PendingDetailsApiResponse {
+  pending_count: number;
+  items: PendingDetailListing[];
+}
+
+export interface DetailCrawlFailPayload {
+  source_engine: string;
+  error_type: string;
+  error_message?: string;
+  http_status?: number;
+}
+

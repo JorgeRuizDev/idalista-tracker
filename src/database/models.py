@@ -9,9 +9,11 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Table,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -108,6 +110,18 @@ class Property(Base):
     missing_since: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     sold_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # Detail crawler fields (006-full-property-crawl)
+    detail_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="legacy", index=True
+    )  # "legacy", "pending", "completed", "discarded"
+    detail_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    discard_reason: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # "delisted", "extension_retries_exhausted", "manual_discard"
+    backend_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    extension_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fallback_to_extension: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # Relationships
     email: Mapped[Optional["EmailSource"]] = relationship(back_populates="properties")
     price_history: Mapped[List["PriceHistory"]] = relationship(
@@ -128,6 +142,21 @@ class Property(Base):
     crawl_sessions: Mapped[List["CrawlSession"]] = relationship(
         secondary=crawl_session_property,
         back_populates="properties",
+    )
+    snapshot: Mapped[Optional["PropertySnapshot"]] = relationship(
+        back_populates="property",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    photos: Mapped[List["PropertyPhoto"]] = relationship(
+        back_populates="property",
+        order_by="PropertyPhoto.sequence_index",
+        cascade="all, delete-orphan",
+    )
+    crawl_attempts: Mapped[List["DetailCrawlAttempt"]] = relationship(
+        back_populates="property",
+        order_by="desc(DetailCrawlAttempt.created_at)",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -334,6 +363,100 @@ class PriceHistory(Base):
             f"<PriceHistory(id={self.id}, property_id={self.property_id}, "
             f"change_type={self.change_type}, new_price={self.new_price})>"
         )
+
+
+class PropertySnapshot(Base):
+    """Represents a comprehensive textual and structured snapshot extracted from a property listing page."""
+
+    __tablename__ = "property_snapshot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    property_id: Mapped[int] = mapped_column(
+        ForeignKey("property.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    crawled_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    source_engine: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # "backend_playwright" | "chrome_extension"
+    full_description: Mapped[str] = mapped_column(Text, nullable=False)
+    neighborhood: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    district: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    province: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    features: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    photos_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Relationships
+    property: Mapped["Property"] = relationship(back_populates="snapshot")
+
+    def __repr__(self) -> str:
+        return f"<PropertySnapshot(id={self.id}, property_id={self.property_id}, source_engine={self.source_engine})>"
+
+
+class PropertyPhoto(Base):
+    """Represents a downloaded photo binary and metadata for a property gallery."""
+
+    __tablename__ = "property_photo"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    property_id: Mapped[int] = mapped_column(
+        ForeignKey("property.id", ondelete="CASCADE"), nullable=False
+    )
+    local_file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    original_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    sequence_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    caption: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False, default="image/jpeg")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("property_id", "sequence_index", name="uq_property_photo_sequence"),
+    )
+
+    # Relationships
+    property: Mapped["Property"] = relationship(back_populates="photos")
+
+    def __repr__(self) -> str:
+        return f"<PropertyPhoto(id={self.id}, property_id={self.property_id}, seq={self.sequence_index})>"
+
+
+class DetailCrawlAttempt(Base):
+    """Immutable audit trail of a crawl attempt across backend and extension tiers."""
+
+    __tablename__ = "detail_crawl_attempt"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    property_id: Mapped[int] = mapped_column(
+        ForeignKey("property.id", ondelete="CASCADE"), nullable=False
+    )
+    attempt_source: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # "backend" | "extension"
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    http_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    challenge_detected: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="none"
+    )  # "none" | "captcha" | "cloudflare" | "rate_limit"
+    outcome: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # "success" | "retryable_error" | "delisted" | "permanent_failure"
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    # Relationships
+    property: Mapped["Property"] = relationship(back_populates="crawl_attempts")
+
+    def __repr__(self) -> str:
+        return f"<DetailCrawlAttempt(id={self.id}, property_id={self.property_id}, source={self.attempt_source}, outcome={self.outcome})>"
 
 
 # Create engine

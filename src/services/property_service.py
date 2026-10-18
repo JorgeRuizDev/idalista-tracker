@@ -2,13 +2,21 @@
 import base64
 import logging
 import urllib.request
-from datetime import timedelta
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from src.database.models import PriceHistory, Property, SavedSearch
+from src.database.models import (
+    DetailCrawlAttempt,
+    PriceHistory,
+    Property,
+    PropertyPhoto,
+    PropertySnapshot,
+    SavedSearch,
+)
+from src.services.zone_service import normalize_zone
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +116,18 @@ class PropertyService:
         location: Optional[str] = None,
         min_bedrooms: Optional[int] = None,
         has_price_drop: Optional[bool] = None,
-        sort_by: str = "created_at",
+        detail_status: Optional[str] = None,
+        status: Optional[str] = None,
+        zone: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        search: Optional[str] = None,
+        sort_by: str = "discount_desc",
         sort_order: str = "desc",
         limit: int = 100,
         offset: int = 0,
     ) -> Tuple[List[Property], int]:
-        """List properties with filtering and pagination.
+        """List properties with extended sales filters, canonical zones, and pagination.
 
         Args:
             min_price: Minimum price filter.
@@ -121,50 +135,188 @@ class PropertyService:
             location: Location substring filter.
             min_bedrooms: Minimum bedrooms filter.
             has_price_drop: Filter for properties with price drops.
-            sort_by: Sort field (price, created_at, price_drop).
-            sort_order: Sort order (asc, desc).
+            detail_status: Filter by detail status ('legacy', 'pending', 'completed', 'discarded').
+            status: Listing status ('all', 'active', 'sold', 'missing').
+            zone: Canonical zone filter.
+            date_from: Start date filter YYYY-MM-DD.
+            date_to: End date filter YYYY-MM-DD.
+            search: Search substring matching title, location, zone, or ID.
+            sort_by: Sort field ('discount_desc', 'days_desc', 'price_asc', 'price_desc', 'm2_asc', 'date_desc').
+            sort_order: Sort order ('asc', 'desc').
             limit: Maximum results.
             offset: Pagination offset.
 
         Returns:
             Tuple of (properties list, total count).
         """
-        query = self.db.query(Property).options(selectinload(Property.price_history))
+        query = self.db.query(Property)
 
-        # Apply filters
+        # Apply base SQL filters
+        if status and status != "all":
+            query = query.filter(Property.status == status)
+
         if min_price is not None:
             query = query.filter(Property.current_price >= min_price)
 
         if max_price is not None:
             query = query.filter(Property.current_price <= max_price)
 
-        if location:
-            query = query.filter(Property.location.ilike(f"%{location}%"))
-
         if min_bedrooms is not None:
             query = query.filter(Property.bedrooms >= min_bedrooms)
 
+        if detail_status:
+            query = query.filter(Property.detail_status == detail_status)
+
+        if location:
+            query = query.filter(Property.location.ilike(f"%{location}%"))
+
+        all_properties = query.all()
+
+        # Compute domain metrics on all candidates
+        for prop in all_properties:
+            p_zone = normalize_zone(prop.title, prop.location)
+            setattr(prop, "zone", p_zone)
+
+            orig_p = prop.original_price or 0
+            cur_p = prop.current_price or 0
+            if orig_p and cur_p and orig_p > cur_p:
+                disc_amount = orig_p - cur_p
+                disc_pct = round((disc_amount / orig_p) * 100.0, 1)
+            else:
+                disc_amount = 0
+                disc_pct = 0.0
+
+            setattr(prop, "discount_amount", disc_amount)
+            setattr(prop, "discount_pct", disc_pct)
+
+            # Days on market
+            days_on_market = None
+            if prop.first_seen_at:
+                if prop.status == "sold":
+                    end_time = prop.sold_at or prop.last_seen_at
+                    if end_time:
+                        days_on_market = max(0, (end_time - prop.first_seen_at).days)
+                else:
+                    days_on_market = max(0, (datetime.utcnow() - prop.first_seen_at).days)
+            setattr(prop, "days_on_market", days_on_market)
+
+            # Price per m2
+            price_per_m2 = None
+            if prop.size_m2 and prop.size_m2 > 0 and cur_p > 0:
+                price_per_m2 = round(cur_p / prop.size_m2)
+            setattr(prop, "price_per_m2", price_per_m2)
+
+            # Address snippet
+            address = prop.location.split(",")[0].strip() if prop.location else (prop.title or "")
+            setattr(prop, "address", address)
+
+        # Apply post-computation filters
+        filtered = all_properties
+
         if has_price_drop:
-            query = query.filter(Property.price_drop_percentage > 0)
+            filtered = [
+                p
+                for p in filtered
+                if getattr(p, "discount_amount", 0) > 0
+                or (p.price_drop_percentage or 0) > 0
+            ]
 
-        # Get total count before pagination
-        total = query.count()
+        if zone and zone != "all":
+            filtered = [p for p in filtered if getattr(p, "zone") == zone]
 
-        # Apply sorting
-        sort_column = getattr(Property, sort_by, Property.created_at)
-        if sort_order.lower() == "desc":
-            query = query.order_by(sort_column.desc())
-        else:
-            query = query.order_by(sort_column.asc())
+        if date_from:
+            try:
+                dt_from = datetime.fromisoformat(date_from)
+                filtered = [
+                    p
+                    for p in filtered
+                    if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
+                    and (p.sold_at if p.status == "sold" else p.first_seen_at) >= dt_from
+                ]
+            except Exception:
+                pass
 
-        # Apply pagination
-        properties = query.offset(offset).limit(limit).all()
+        if date_to:
+            try:
+                dt_to = datetime.fromisoformat(date_to) + timedelta(days=1)
+                filtered = [
+                    p
+                    for p in filtered
+                    if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
+                    and (p.sold_at if p.status == "sold" else p.first_seen_at) < dt_to
+                ]
+            except Exception:
+                pass
 
-        # Set price history count on each property for serialization
-        for prop in properties:
-            prop.price_history_count = len(prop.price_history)
+        if search:
+            s_lower = search.lower().strip()
+            filtered = [
+                p
+                for p in filtered
+                if s_lower in (p.title or "").lower()
+                or s_lower in (p.location or "").lower()
+                or s_lower in getattr(p, "zone", "").lower()
+                or s_lower in (p.idealista_id or "").lower()
+            ]
 
-        return properties, total
+        # Sorting
+        def sort_key(p: Property) -> Any:
+            if sort_by == "discount_desc":
+                return (getattr(p, "discount_pct", 0.0), getattr(p, "discount_amount", 0))
+            elif sort_by == "days_desc":
+                return getattr(p, "days_on_market", 0) or 0
+            elif sort_by == "price_asc":
+                return p.current_price or 0
+            elif sort_by == "price_desc":
+                return p.current_price or 0
+            elif sort_by == "m2_asc":
+                return getattr(p, "price_per_m2", 0) or 0
+            elif sort_by == "date_desc":
+                dt = p.sold_at if p.status == "sold" else p.first_seen_at
+                return dt or datetime.min
+            elif sort_by == "created_at":
+                return p.created_at or datetime.min
+            return getattr(p, sort_by, p.created_at) or datetime.min
+
+        is_desc = (sort_order.lower() == "desc")
+        if sort_by in ("price_asc", "m2_asc"):
+            is_desc = False
+        elif sort_by in ("discount_desc", "days_desc", "price_desc", "date_desc"):
+            is_desc = True
+
+        filtered.sort(key=sort_key, reverse=is_desc)
+
+        total = len(filtered)
+        paginated = filtered[offset : offset + limit]
+
+        # Populate photos and price history counts only for paginated items
+        if paginated:
+            prop_ids = [p.id for p in paginated]
+            photos_by_prop: Dict[int, List[str]] = {pid: [] for pid in prop_ids}
+            photos = (
+                self.db.query(PropertyPhoto)
+                .filter(PropertyPhoto.property_id.in_(prop_ids))
+                .order_by(PropertyPhoto.sequence_index.asc())
+                .all()
+            )
+            for ph in photos:
+                photos_by_prop[ph.property_id].append(ph.original_url)
+
+            hist_counts = dict(
+                self.db.query(PriceHistory.property_id, func.count(PriceHistory.id))
+                .filter(PriceHistory.property_id.in_(prop_ids))
+                .group_by(PriceHistory.property_id)
+                .all()
+            )
+
+            for p in paginated:
+                p_photos = photos_by_prop.get(p.id, [])
+                if not p_photos and p.image_url:
+                    p_photos = [p.image_url]
+                setattr(p, "photos_list", p_photos)
+                setattr(p, "price_history_count", hist_counts.get(p.id, 0))
+
+        return paginated, total
 
     def get_price_drops(
         self,
@@ -636,6 +788,10 @@ class PropertyService:
                 last_seen_at=datetime.utcnow(),
                 status="active",
                 is_active=True,
+                detail_status="pending",
+                backend_attempts=0,
+                extension_attempts=0,
+                fallback_to_extension=False,
             )
             self.db.add(prop)
             self.db.flush()  # Get prop.id
@@ -780,3 +936,283 @@ class PropertyService:
         except Exception as e:
             logger.warning(f"Failed to download image for property {prop.idealista_id} from {prop.image_url}: {e}")
             return False
+
+    def create_property(self, data: dict) -> Property:
+        """Create a new property directly from dictionary attributes.
+
+        Args:
+            data: Property attribute dictionary.
+
+        Returns:
+            Created Property instance.
+        """
+        idealista_id = str(data["idealista_id"])
+        prop = Property(
+            idealista_id=idealista_id,
+            title=data.get("title", f"Property {idealista_id}"),
+            property_type=data.get("property_type"),
+            location=data.get("location", ""),
+            original_price=data.get("original_price") or data.get("current_price", 0),
+            current_price=data.get("current_price", 0),
+            price_drop_percentage=data.get("price_drop_percentage"),
+            size_m2=data.get("size_m2"),
+            bedrooms=data.get("bedrooms"),
+            floor=data.get("floor"),
+            has_elevator=data.get("has_elevator"),
+            property_url=data.get("property_url", f"https://www.idealista.com/inmueble/{idealista_id}/"),
+            image_url=data.get("image_url"),
+            image_data=data.get("image_data"),
+            first_seen_at=datetime.utcnow(),
+            last_seen_at=datetime.utcnow(),
+            status=data.get("status", "active"),
+            is_active=data.get("is_active", True),
+            detail_status=data.get("detail_status", "pending"),
+            backend_attempts=data.get("backend_attempts", 0),
+            extension_attempts=data.get("extension_attempts", 0),
+            fallback_to_extension=data.get("fallback_to_extension", False),
+        )
+        self.db.add(prop)
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def mark_detail_completed(self, property_id: int) -> Property:
+        """Transition property detail crawl status to completed.
+
+        Args:
+            property_id: Primary key of property.
+
+        Returns:
+            Updated Property instance.
+        """
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+        prop.detail_status = "completed"
+        prop.detail_updated_at = datetime.utcnow()
+        prop.discard_reason = None
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def mark_detail_discarded(self, property_id: int, reason: str) -> Property:
+        """Transition property detail crawl status to discarded with validated reason.
+
+        Args:
+            property_id: Primary key of property.
+            reason: Discard reason ('delisted', 'extension_retries_exhausted', 'manual_discard').
+
+        Returns:
+            Updated Property instance.
+        """
+        valid_reasons = {"delisted", "extension_retries_exhausted", "manual_discard"}
+        if reason not in valid_reasons:
+            raise ValueError(f"Invalid discard reason: '{reason}'. Must be one of {valid_reasons}")
+
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+
+        prop.detail_status = "discarded"
+        prop.discard_reason = reason
+        prop.detail_updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def record_backend_attempt(
+        self,
+        property_id: int,
+        challenge: str = "none",
+        outcome: str = "retryable_error",
+        http_status: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> Property:
+        """Record an attempt from the backend Playwright crawler.
+
+        Increments backend_attempts. If attempts >= 3 or challenge detected,
+        flags fallback_to_extension = True.
+        """
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+
+        prop.backend_attempts += 1
+        if prop.backend_attempts >= 3 or (challenge and challenge != "none"):
+            prop.fallback_to_extension = True
+
+        attempt = DetailCrawlAttempt(
+            property_id=property_id,
+            attempt_source="backend",
+            attempt_number=prop.backend_attempts,
+            http_status=http_status,
+            challenge_detected=challenge,
+            outcome=outcome,
+            error_message=error_message,
+            created_at=datetime.utcnow(),
+        )
+        self.db.add(attempt)
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def record_extension_attempt(
+        self,
+        property_id: int,
+        challenge: str = "none",
+        outcome: str = "retryable_error",
+        http_status: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> Property:
+        """Record an attempt from the Chrome extension crawler.
+
+        Increments extension_attempts. If attempts >= 3, auto-discards
+        with reason 'extension_retries_exhausted'.
+        """
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+
+        prop.extension_attempts += 1
+        attempt = DetailCrawlAttempt(
+            property_id=property_id,
+            attempt_source="extension",
+            attempt_number=prop.extension_attempts,
+            http_status=http_status,
+            challenge_detected=challenge,
+            outcome=outcome,
+            error_message=error_message,
+            created_at=datetime.utcnow(),
+        )
+        self.db.add(attempt)
+
+        if prop.extension_attempts >= 3:
+            prop.detail_status = "discarded"
+            prop.discard_reason = "extension_retries_exhausted"
+            prop.detail_updated_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def requeue_detail(self, property_id: int) -> Property:
+        """Reset a discarded or failed property detail status back to pending."""
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+
+        prop.detail_status = "pending"
+        prop.backend_attempts = 0
+        prop.extension_attempts = 0
+        prop.fallback_to_extension = False
+        prop.discard_reason = None
+        prop.detail_updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop
+
+    def get_pending_detail_properties(
+        self,
+        limit: int = 50,
+        priority_only: bool = False,
+    ) -> List[Property]:
+        """Get properties pending detail crawl.
+
+        Args:
+            limit: Maximum items to return.
+            priority_only: If true, only return properties with fallback_to_extension = True.
+
+        Returns:
+            List of pending Property objects.
+        """
+        query = self.db.query(Property).filter(Property.detail_status == "pending")
+        if priority_only:
+            query = query.filter(Property.fallback_to_extension.is_(True))
+
+        return (
+            query.order_by(
+                Property.fallback_to_extension.desc(),
+                Property.created_at.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+
+    async def save_property_snapshot(
+        self,
+        property_id: int,
+        snapshot_data: dict,
+        media_service: Optional[Any] = None,
+    ) -> Property:
+        """Persist listing snapshot, download gallery photos, and update detail status to completed.
+
+        Args:
+            property_id: Primary key of property.
+            snapshot_data: Dict with extracted snapshot attributes and photos list.
+            media_service: Optional MediaService instance.
+
+        Returns:
+            Updated Property instance.
+        """
+        prop = self.db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property with id {property_id} not found")
+
+        # Check for confirmed delisting
+        if snapshot_data.get("is_delisted") or snapshot_data.get("delisted"):
+            return self.mark_detail_discarded(property_id, reason="delisted")
+
+        # Resolve media service
+        if media_service is None:
+            from src.services.media_service import MediaService
+
+            media_service = MediaService()
+
+        # Download photos locally
+        photos_input = snapshot_data.get("photos", [])
+        downloaded = await media_service.download_property_photos(
+            prop.idealista_id, photos_input
+        )
+
+        # Remove previous snapshot/photos if any
+        self.db.query(PropertyPhoto).filter(PropertyPhoto.property_id == prop.id).delete()
+        self.db.query(PropertySnapshot).filter(PropertySnapshot.property_id == prop.id).delete()
+        self.db.flush()
+
+        # Create PropertySnapshot
+        snapshot = PropertySnapshot(
+            property_id=prop.id,
+            crawled_at=datetime.utcnow(),
+            source_engine=snapshot_data.get("source_engine", "backend_playwright"),
+            full_description=snapshot_data.get("full_description", ""),
+            neighborhood=snapshot_data.get("neighborhood"),
+            district=snapshot_data.get("district"),
+            city=snapshot_data.get("city"),
+            province=snapshot_data.get("province"),
+            latitude=snapshot_data.get("latitude"),
+            longitude=snapshot_data.get("longitude"),
+            features=snapshot_data.get("features"),
+            photos_count=len(downloaded),
+        )
+        self.db.add(snapshot)
+
+        # Create PropertyPhoto rows
+        for p_info in downloaded:
+            photo = PropertyPhoto(
+                property_id=prop.id,
+                local_file_path=p_info["local_file_path"],
+                original_url=p_info["original_url"],
+                sequence_index=p_info["sequence_index"],
+                caption=p_info.get("caption"),
+                file_size_bytes=p_info.get("file_size_bytes"),
+                content_type=p_info.get("content_type", "image/jpeg"),
+                created_at=datetime.utcnow(),
+            )
+            self.db.add(photo)
+
+        prop.detail_status = "completed"
+        prop.detail_updated_at = datetime.utcnow()
+        prop.discard_reason = None
+        self.db.commit()
+        self.db.refresh(prop)
+        return prop

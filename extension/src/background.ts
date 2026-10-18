@@ -3,6 +3,7 @@ import type { CrawlConfig, CrawlState, SavedSearch, ExtractedSavedSearch } from 
 import * as crawler from './services/crawler';
 import * as storage from './services/storage';
 import * as api from './services/api';
+import { runFallbackDetailCrawlCycle } from './services/detail_crawler';
 
 // Initialize extension on install
 chrome.runtime.onInstalled.addListener(() => {
@@ -19,6 +20,11 @@ chrome.runtime.onInstalled.addListener(() => {
   };
   
   chrome.storage.local.set({ config: defaultConfig });
+
+  // Schedule periodic detail fallback crawl
+  if (chrome.alarms) {
+    chrome.alarms.create('DETAIL_FALLBACK_CRAWL', { periodInMinutes: 2 });
+  }
 });
 
 // Handle messages from popup and content scripts
@@ -74,6 +80,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
       
+    case 'RUN_DETAIL_FALLBACK_CRAWL':
+      runFallbackDetailCrawlCycle()
+        .then(response => sendResponse({ success: true, ...response }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
     case 'SAVE_CONFIG':
       handleSaveConfig(message.payload)
         .then(response => sendResponse(response))
@@ -355,3 +367,15 @@ chrome.runtime.onStartup.addListener(async () => {
     // The crawler will handle resume internally when called
   }
 });
+
+// Periodic fallback crawl alarm listener
+if (typeof chrome !== 'undefined' && chrome.alarms) {
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === 'DETAIL_FALLBACK_CRAWL') {
+      console.log('[Background] Running scheduled detail fallback crawl...');
+      runFallbackDetailCrawlCycle().catch(err => {
+        console.error('[Background] Error in detail fallback alarm execution:', err);
+      });
+    }
+  });
+}

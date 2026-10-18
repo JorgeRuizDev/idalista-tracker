@@ -54,6 +54,11 @@ htmlcov/
 .DS_Store
 Thumbs.db
 idealista_properties.db
+test.db
+
+# Media storage
+data/media/properties/*
+!data/media/properties/.gitkeep
 
 # Node.js / Extension
 extension/node_modules/
@@ -63,10 +68,14 @@ extension/*.log
 extension/coverage/
 extension/.vite/
 
-# Frontend / Next.js
+# Node.js / Root
+node_modules/
+
+# Frontend / Vite React
 frontend/node_modules/
 frontend/dist/
 frontend/.env*
 frontend/*.log
 frontend/coverage/
-frontend/.next/
+frontend/.vite/
+

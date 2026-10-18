@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # Media Storage Configuration
+    MEDIA_ROOT: str = "data/media"
+    """Root directory for persistent media storage."""
+    PROPERTY_MEDIA_DIR: str = "data/media/properties"
+    """Directory for downloaded property photos."""
+
     @property
     def database_connection_args(self) -> dict:
         """Return connection arguments for SQLite.

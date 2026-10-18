@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
@@ -18,11 +18,18 @@ from src.api.schemas import (
     CrawlStatusResponse,
     CrawlTriggerRequest,
     CrawlTriggerResponse,
+    DetailCrawlFailRequest,
+    DetailCrawlFailResponse,
+    DetailSnapshotSubmitRequest,
+    DetailSnapshotSubmitResponse,
     DetectMissingRequest,
     DetectMissingResponse,
+    PendingDetailItem,
+    PendingDetailsResponse,
 )
 from src.crawler.scheduler import get_next_run_time, start_scheduler, stop_scheduler
 from src.crawler.service import CrawlerService
+from src.database.models import Property
 from src.services import crawl_service
 from src.services.property_service import PropertyService
 
@@ -242,3 +249,107 @@ def get_crawl_history_detail(
     service = PropertyService(db)
     detail = service.get_crawl_history_detail(date)
     return CrawlHistoryDetailResponse(**detail)
+
+
+# ============= Detail Crawler Endpoints (006-full-property-crawl) =============
+
+
+@router.get("/pending-details", response_model=PendingDetailsResponse)
+def get_pending_details(
+    limit: int = Query(5, ge=1, le=20, description="Max listings to return"),
+    priority_only: bool = Query(True, description="Filter for listings delegated to extension"),
+    db: Session = Depends(get_db),
+) -> PendingDetailsResponse:
+    """Retrieve listings pending detail crawl for Chrome extension fallback."""
+    service = PropertyService(db)
+    pending_props = service.get_pending_detail_properties(
+        limit=limit, priority_only=priority_only
+    )
+    items = [
+        PendingDetailItem(
+            property_id=p.id,
+            idealista_id=p.idealista_id,
+            property_url=p.property_url,
+            extension_attempts=p.extension_attempts,
+        )
+        for p in pending_props
+    ]
+    return PendingDetailsResponse(pending_count=len(items), items=items)
+
+
+@router.post("/details/{idealista_id}", response_model=DetailSnapshotSubmitResponse)
+async def submit_property_detail(
+    idealista_id: str,
+    request: DetailSnapshotSubmitRequest,
+    db: Session = Depends(get_db),
+) -> DetailSnapshotSubmitResponse:
+    """Accept extracted detail snapshot from backend or Chrome extension."""
+    service = PropertyService(db)
+    prop = service.get_property_by_idealista_id(idealista_id)
+    if not prop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Property {idealista_id} not found",
+        )
+
+    if request.delisted:
+        service.mark_detail_discarded(prop.id, reason="delisted")
+        service.record_backend_attempt(
+            prop.id,
+            outcome="delisted",
+            http_status=404,
+            error_message="Marked delisted in submission",
+        )
+        return DetailSnapshotSubmitResponse(
+            status="discarded",
+            property_id=prop.id,
+            idealista_id=prop.idealista_id,
+            detail_status="discarded",
+            photos_downloaded=0,
+        )
+
+    payload_dict = request.model_dump()
+    updated_prop = await service.save_property_snapshot(prop.id, payload_dict)
+
+    photos_count = (
+        updated_prop.snapshot.photos_count if updated_prop.snapshot else len(request.photos)
+    )
+    return DetailSnapshotSubmitResponse(
+        status="success",
+        property_id=updated_prop.id,
+        idealista_id=updated_prop.idealista_id,
+        detail_status=updated_prop.detail_status,
+        photos_downloaded=photos_count,
+    )
+
+
+@router.post("/details/{idealista_id}/fail", response_model=DetailCrawlFailResponse)
+def report_detail_crawl_failure(
+    idealista_id: str,
+    request: DetailCrawlFailRequest,
+    db: Session = Depends(get_db),
+) -> DetailCrawlFailResponse:
+    """Record a failed detail crawl attempt from the Chrome extension."""
+    service = PropertyService(db)
+    prop = service.get_property_by_idealista_id(idealista_id)
+    if not prop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Property {idealista_id} not found",
+        )
+
+    updated_prop = service.record_extension_attempt(
+        prop.id,
+        challenge=request.error_type,
+        outcome="permanent_failure" if prop.extension_attempts >= 2 else "retryable_error",
+        http_status=request.http_status,
+        error_message=request.error_message,
+    )
+
+    return DetailCrawlFailResponse(
+        status="recorded",
+        idealista_id=updated_prop.idealista_id,
+        current_attempts=updated_prop.extension_attempts,
+        detail_status=updated_prop.detail_status,
+        discard_reason=updated_prop.discard_reason,
+    )

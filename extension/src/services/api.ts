@@ -6,6 +6,9 @@ import type {
   SavedSearch,
   CrawlSessionCreate,
   SavedSearchSyncRequest,
+  DetailCrawlFailPayload,
+  DetailSnapshotPayload,
+  PendingDetailsApiResponse,
 } from '../types';
 
 const API_VERSION = 'v1';
@@ -173,4 +176,42 @@ export async function healthCheck(): Promise<{ status: string; timestamp: string
     throw new Error('Health check failed');
   }
   return response.json();
+}
+
+/**
+ * Fetch properties pending detail crawling from server queue
+ */
+export async function fetchPendingDetails(
+  limit: number = 5,
+  priorityOnly: boolean = true
+): Promise<PendingDetailsApiResponse> {
+  return apiRequest<PendingDetailsApiResponse>(
+    `/crawl/pending-details?limit=${limit}&priority_only=${priorityOnly}`
+  );
+}
+
+/**
+ * Submit property detail snapshot extracted by extension
+ */
+export async function submitPropertyDetail(
+  idealistaId: string,
+  data: DetailSnapshotPayload
+): Promise<{ status: string; property_id: number; idealista_id: string; detail_status: string; photos_downloaded: number }> {
+  return apiRequest(`/crawl/details/${idealistaId}`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Report failure when extension cannot extract listing details
+ */
+export async function reportDetailCrawlFailure(
+  idealistaId: string,
+  data: DetailCrawlFailPayload
+): Promise<{ status: string; idealista_id: string; current_attempts: number; detail_status: string; discard_reason?: string }> {
+  return apiRequest(`/crawl/details/${idealistaId}/fail`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }

@@ -1,0 +1,15 @@
+{
+  "name": "idalista-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Property crawler and analytics tracker for Idealista",
+  "scripts": {
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:test": "npm --prefix frontend test",
+    "backend:dev": "uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload",
+    "test:backend": ".venv\\Scripts\\pytest.exe",
+    "test:frontend": "npm --prefix frontend test",
+    "test": "npm run test:backend && npm run test:frontend"
+  }
+}

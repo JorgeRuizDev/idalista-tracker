@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response models."""
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -64,6 +64,10 @@ class PropertyResponse(PropertyBase):
     missing_since: Optional[datetime] = None
     sold_at: Optional[datetime] = None
     status: str = "active"
+    detail_status: str = "legacy"
+    detail_updated_at: Optional[datetime] = None
+    discard_reason: Optional[str] = None
+    photos_count: int = 0
     created_at: datetime
     updated_at: datetime
     is_active: bool
@@ -76,13 +80,58 @@ class PropertyDetailResponse(PropertyResponse):
     price_history: List[PriceHistoryResponse] = []
 
 
+PropertySortBy = Literal[
+    "discount_desc",
+    "days_desc",
+    "price_asc",
+    "price_desc",
+    "m2_asc",
+    "date_desc",
+    "created_at",
+]
+
+PropertyStatus = Literal["active", "sold", "missing", "all"]
+
+
+class PropertyItem(BaseModel):
+    """Property listing item for catalog and analytics explorer."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    idealista_id: str
+    title: str
+    address: Optional[str] = None
+    zone: str
+    property_type: Optional[str] = None
+    original_price: int
+    current_price: int
+    discount_amount: int = 0
+    discount_pct: float = 0.0
+    size_m2: Optional[int] = None
+    price_per_m2: Optional[int] = None
+    bedrooms: Optional[int] = None
+    floor: Optional[str] = None
+    has_elevator: Optional[bool] = None
+    status: Literal["active", "sold", "missing"] = "active"
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    sold_at: Optional[datetime] = None
+    days_on_market: Optional[int] = None
+    photos: List[str] = []
+    property_url: str
+    price_history_count: int = 0
+    detail_status: Optional[str] = "legacy"
+    discard_reason: Optional[str] = None
+
+
 class PropertyListResponse(BaseModel):
     """Paginated property list response."""
 
-    items: List[PropertyResponse]
+    items: List[PropertyItem]
     total: int
-    limit: int
-    offset: int
+    limit: int = Field(ge=1, le=1000)
+    offset: int = Field(ge=0)
 
 
 class PropertyPriceDropResponse(BaseModel):
@@ -509,3 +558,208 @@ class CrawlHistoryDetailResponse(BaseModel):
     price_increases: List[CrawlHistoryPriceIncreaseDetail] = []
     new_missing: List[CrawlHistoryPropertySummary] = []
     new_sold: List[CrawlHistoryPropertySummary] = []
+
+
+# ============= Detail Crawler Schemas (006-full-property-crawl) =============
+
+
+class PropertyPhotoResponse(BaseModel):
+    """Property gallery photo metadata and access path."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = None
+    sequence_index: int = 0
+    local_url: Optional[str] = None
+    original_url: Optional[str] = None
+    caption: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    content_type: Optional[str] = "image/jpeg"
+
+
+class PropertySnapshotData(BaseModel):
+    """Detailed snapshot attributes extracted from property listing page."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    crawled_at: datetime
+    source_engine: str
+    full_description: str
+    neighborhood: Optional[str] = None
+    district: Optional[str] = None
+    city: Optional[str] = None
+    province: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    features: Optional[dict] = None
+    photos: List[PropertyPhotoResponse] = []
+
+
+class PropertySnapshotResponse(BaseModel):
+    """Response schema for property snapshot retrieval endpoint."""
+
+    property_id: int
+    idealista_id: str
+    detail_status: str
+    detail_updated_at: Optional[datetime] = None
+    snapshot: Optional[PropertySnapshotData] = None
+
+
+class PendingDetailItem(BaseModel):
+    """Listing pending detail crawl item for extension queue."""
+
+    property_id: int
+    idealista_id: str
+    property_url: str
+    extension_attempts: int = 0
+
+
+class PendingDetailsResponse(BaseModel):
+    """Response schema for listings pending detail crawling."""
+
+    pending_count: int
+    items: List[PendingDetailItem]
+
+
+class DetailPhotoSubmitItem(BaseModel):
+    """Gallery photo item in submission payload."""
+
+    original_url: str
+    sequence_index: int = 0
+    caption: Optional[str] = None
+
+
+class DetailSnapshotSubmitRequest(BaseModel):
+    """Payload submitted by backend crawler or extension with listing details."""
+
+    source_engine: str = "chrome_extension"
+    full_description: Optional[str] = ""
+    neighborhood: Optional[str] = None
+    district: Optional[str] = None
+    city: Optional[str] = None
+    province: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    features: Optional[dict] = None
+    photos: List[DetailPhotoSubmitItem] = []
+    delisted: Optional[bool] = False
+
+
+class DetailSnapshotSubmitResponse(BaseModel):
+    """Response schema after snapshot submission."""
+
+    status: str = "success"
+    property_id: int
+    idealista_id: str
+    detail_status: str
+    photos_downloaded: int = 0
+
+
+class DetailCrawlFailRequest(BaseModel):
+    """Failure report submitted when extension crawl encounters an error."""
+
+    source_engine: str = "chrome_extension"
+    error_type: str = "bot_challenge"
+    error_message: Optional[str] = None
+    http_status: Optional[int] = None
+
+
+class DetailCrawlFailResponse(BaseModel):
+    """Response schema after crawl failure recorded."""
+
+    status: str = "recorded"
+    idealista_id: str
+    current_attempts: int
+    detail_status: str
+    discard_reason: Optional[str] = None
+
+
+class RequeueDetailResponse(BaseModel):
+    """Response schema when resetting a listing back to pending."""
+
+    property_id: int
+    detail_status: str = "pending"
+    backend_attempts: int = 0
+    extension_attempts: int = 0
+    discard_reason: Optional[str] = None
+
+
+class DiscardDetailRequest(BaseModel):
+    """Request schema for manually discarding a property detail crawl."""
+
+    reason: str = "manual_discard"
+    note: Optional[str] = None
+
+
+class DiscardDetailResponse(BaseModel):
+    """Response schema when manually discarding a property detail crawl."""
+
+    property_id: int
+    detail_status: str = "discarded"
+    discard_reason: str = "manual_discard"
+
+
+# ============= Canonical Zones & Analytics Schemas =============
+
+
+class NormalizedZoneResponse(BaseModel):
+    """Canonical zone census statistics schema."""
+
+    zone: str
+    total: int
+    active: int
+    sold: int
+    missing: int
+    avg_price: int
+    avg_m2: int
+    avg_days_to_sell: int
+    avg_discount_pct: float
+
+
+class IntervalZoneMetric(BaseModel):
+    """Territorial breakdown metric for an audit interval."""
+
+    zone: str
+    inclusions: int
+    sales: int
+    avg_days_to_sell: int
+    avg_discount_pct: float
+    avg_sale_price: int
+
+
+class IntervalAuditResponse(BaseModel):
+    """Aggregated market indicators and zone breakdown for a time interval."""
+
+    start_date: str
+    end_date: str
+    interval_label: str
+    inclusions: int
+    sales: int
+    drops_count: int
+    avg_drop_pct: float
+    total_drop_amount: int
+    increases_count: int
+    avg_inc_pct: float
+    avg_days_to_sell: int
+    zone_breakdown: List[IntervalZoneMetric]
+
+
+class MonthlyTrendItem(BaseModel):
+    """Monthly market trend aggregate data point."""
+
+    month: str
+    label: str
+    avg_price: int
+    avg_m2: int
+    properties_active: int
+    properties_sold: int
+    price_drops: int
+    avg_drop_pct: float
+
+
+class MarketTrendsResponse(BaseModel):
+    """Monthly market trends time series response."""
+
+    monthly: List[MonthlyTrendItem]
+
+

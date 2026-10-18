@@ -73,7 +73,89 @@ def init_scheduler() -> AsyncIOScheduler:
 
     logger.info("Email crawler scheduler is DISABLED - extension crawler only")
 
+    # Detail crawler scheduled job (runs every 2 minutes to process pending queues)
+    sched.add_job(
+        scheduled_detail_crawl,
+        trigger=IntervalTrigger(minutes=2),
+        id="detail_crawl",
+        name="Property Detail Snapshot Crawl",
+        replace_existing=True,
+        next_run_time=datetime.utcnow() + timedelta(seconds=15),
+    )
+    logger.info("Property Detail Crawler scheduled every 2 minutes")
+
     return sched
+
+
+async def scheduled_detail_crawl() -> None:
+    """Scheduled background worker to poll pending detail properties and crawl them."""
+    logger.info("Polling for pending property detail crawls...")
+    try:
+        with get_db_session() as db:
+            from src.crawler.detail_crawler import PlaywrightDetailCrawler
+            from src.services.property_service import PropertyService
+
+            service = PropertyService(db)
+            # Fetch pending listings that have not exceeded backend attempts and are not flagged priority for extension
+            pending_props = service.get_pending_detail_properties(limit=5)
+            # Filter for backend eligible: not already delegated to extension
+            backend_candidates = [
+                p for p in pending_props if not p.fallback_to_extension and p.backend_attempts < 3
+            ]
+
+            if not backend_candidates:
+                logger.debug("No backend candidates pending detail crawling")
+                return
+
+            crawler = PlaywrightDetailCrawler()
+
+            for prop in backend_candidates:
+                logger.info(f"Detail crawling property {prop.idealista_id} ({prop.property_url})...")
+                # Apply polite jittered pacing (8–15s)
+                await crawler.apply_polite_pacing()
+
+                try:
+                    result = await crawler.extract_listing_details(prop.property_url)
+                except Exception as e:
+                    logger.warning(f"Error crawling property {prop.idealista_id}: {e}")
+                    service.record_backend_attempt(
+                        prop.id,
+                        challenge="none",
+                        outcome="retryable_error",
+                        error_message=str(e),
+                    )
+                    continue
+
+                if result.get("is_delisted"):
+                    logger.info(f"Property {prop.idealista_id} confirmed delisted; marking discarded")
+                    service.mark_detail_discarded(prop.id, reason="delisted")
+                    service.record_backend_attempt(
+                        prop.id,
+                        outcome="delisted",
+                        http_status=result.get("http_status"),
+                    )
+                elif result.get("challenge", "none") != "none":
+                    logger.warning(
+                        f"Challenge {result['challenge']} encountered on {prop.idealista_id}"
+                    )
+                    service.record_backend_attempt(
+                        prop.id,
+                        challenge=result["challenge"],
+                        outcome="retryable_error",
+                        http_status=result.get("http_status"),
+                    )
+                else:
+                    logger.info(f"Successfully extracted snapshot for property {prop.idealista_id}")
+                    await service.save_property_snapshot(prop.id, result)
+                    service.record_backend_attempt(
+                        prop.id,
+                        challenge="none",
+                        outcome="success",
+                        http_status=result.get("http_status"),
+                    )
+
+    except Exception as e:
+        logger.error(f"Scheduled detail crawl job failed: {e}")
 
 
 def start_scheduler() -> None:

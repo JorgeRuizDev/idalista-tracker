@@ -86,13 +86,42 @@ The project includes a Chrome extension for crawling Idealista saved searches di
 
 📖 **Detailed Extension Documentation**: See [extension/README.md](extension/README.md)
 
+## Analytics Frontend (Vite + React 19)
+
+A responsive, zero-map analytics web client built with React 19, TypeScript, Tailwind CSS v4, and Chart.js.
+
+### Quick Setup
+
+```bash
+# Start backend and frontend concurrently or separately:
+# 1. Backend (Terminal 1)
+npm run backend:dev
+# Or: uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 2. Frontend (Terminal 2)
+npm run frontend:dev
+# Or: cd frontend && npm run dev
+```
+
+Open `http://localhost:5173` in your browser.
+
+### Key Frontend Views
+- **Explorador de Inmuebles**: Filter by sale status (*Solo Vendidos*, *Activos*, *Incluir Todos*), normalized zone, and date window. Modal displays price history chart and negotiation discount.
+- **Auditoría por Intervalos & Calendario**: Custom date picker and monthly presets (May–Oct 2026) computing inclusions, sales, drops, rises, and avg days on market per zone.
+- **Evolución de Precios & Censo**: Monthly €/m² macro trend, drops vs sales volume chart, and multi-column sorted census table for all 23 canonical Burgos zones.
+
 ## API Endpoints
 
 ### Properties
-- `GET /api/v1/properties` - List all properties with filters
+- `GET /api/v1/properties` - List properties with filters (`status`, `zone`, `date_from`, `date_to`, `search`, `limit`, `offset`)
 - `GET /api/v1/properties/{idealista_id}` - Get single property with price history
 - `GET /api/v1/properties/price-drops` - Properties with price drops
 - `POST /api/v1/properties/batch` - Ingest property batch from extension
+
+### Zones & Analytics
+- `GET /api/v1/zones` - Canonical 23 Burgos zones census with listings counts and prices
+- `GET /api/v1/analytics/interval` - Time interval audit (sales, inclusions, drops, avg days to sell)
+- `GET /api/v1/analytics/trends` - Macroeconomic monthly time series for €/m², price drops, and volume
 
 ### Saved Searches (Extension)
 - `GET /api/v1/searches` - List all saved searches

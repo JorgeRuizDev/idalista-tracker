@@ -66,13 +66,33 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
         }
 
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+
+    # Ensure media directories exist and mount static files
+    media_path = Path(settings.MEDIA_ROOT)
+    media_path.mkdir(parents=True, exist_ok=True)
+    property_media_path = Path(settings.PROPERTY_MEDIA_DIR)
+    property_media_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
+
     # Add API routers
-    from src.api.routes import crawl, properties, searches, stats
+    from src.api.routes import analytics, crawl, properties, searches, stats, zones
 
     app.include_router(crawl.router, prefix="/api/v1")
     app.include_router(properties.router, prefix="/api/v1")
     app.include_router(searches.router, prefix="/api/v1")
     app.include_router(stats.router, prefix="/api/v1")
+    app.include_router(zones.router, prefix="/api/v1")
+    app.include_router(analytics.router, prefix="/api/v1")
+
+    # Also include with /api prefix for contract compatibility
+    app.include_router(crawl.router, prefix="/api")
+    app.include_router(properties.router, prefix="/api")
+    app.include_router(searches.router, prefix="/api")
+    app.include_router(stats.router, prefix="/api")
+    app.include_router(zones.router, prefix="/api")
+    app.include_router(analytics.router, prefix="/api")
 
     return app
 
