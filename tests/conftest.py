@@ -30,4 +30,7 @@ def db_session(engine):
         yield session
     finally:
         session.rollback()
+        for table in reversed(Base.metadata.sorted_tables):
+            session.execute(table.delete())
+        session.commit()
         session.close()

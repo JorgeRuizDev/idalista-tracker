@@ -182,8 +182,8 @@ export async function healthCheck(): Promise<{ status: string; timestamp: string
  * Fetch properties pending detail crawling from server queue
  */
 export async function fetchPendingDetails(
-  limit: number = 5,
-  priorityOnly: boolean = true
+  limit: number = 50,
+  priorityOnly: boolean = false
 ): Promise<PendingDetailsApiResponse> {
   return apiRequest<PendingDetailsApiResponse>(
     `/crawl/pending-details?limit=${limit}&priority_only=${priorityOnly}`

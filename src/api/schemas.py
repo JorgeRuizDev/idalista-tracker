@@ -1,9 +1,9 @@
 """Pydantic schemas for API request/response models."""
+
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ============= Price History Schemas =============
 
@@ -77,6 +77,7 @@ class PropertyResponse(PropertyBase):
 class PropertyDetailResponse(PropertyResponse):
     """Property detail response with price history."""
 
+    photos: List[str] = []
     price_history: List[PriceHistoryResponse] = []
 
 
@@ -761,5 +762,3 @@ class MarketTrendsResponse(BaseModel):
     """Monthly market trends time series response."""
 
     monthly: List[MonthlyTrendItem]
-
-

@@ -1,4 +1,5 @@
 """Crawl control API routes."""
+
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
@@ -154,6 +155,7 @@ async def get_crawl_status() -> CrawlStatusResponse:
 
 # Extension Crawler Endpoints
 
+
 @router.post("/sessions", response_model=CrawlSessionResponse, status_code=status.HTTP_201_CREATED)
 def create_crawl_session(
     request: CrawlSessionCreate,
@@ -207,7 +209,10 @@ def detect_missing_properties(
 ) -> DetectMissingResponse:
     """Detect properties that are no longer visible in a search."""
     result = crawl_service.detect_missing_properties(
-        db, session_id, search_id, request.current_property_external_ids,
+        db,
+        session_id,
+        search_id,
+        request.current_property_external_ids,
         external_search_id=request.external_search_id,
     )
     return DetectMissingResponse(**result)
@@ -256,15 +261,14 @@ def get_crawl_history_detail(
 
 @router.get("/pending-details", response_model=PendingDetailsResponse)
 def get_pending_details(
-    limit: int = Query(5, ge=1, le=20, description="Max listings to return"),
-    priority_only: bool = Query(True, description="Filter for listings delegated to extension"),
+    limit: int = Query(50, ge=1, le=500, description="Max listings to return"),
+    priority_only: bool = Query(False, description="Filter for listings delegated to extension"),
     db: Session = Depends(get_db),
 ) -> PendingDetailsResponse:
-    """Retrieve listings pending detail crawl for Chrome extension fallback."""
+    """Retrieve listings pending detail crawl for Chrome extension."""
     service = PropertyService(db)
-    pending_props = service.get_pending_detail_properties(
-        limit=limit, priority_only=priority_only
-    )
+    pending_props = service.get_pending_detail_properties(limit=limit, priority_only=priority_only)
+    total_count = service.get_pending_detail_count(priority_only=priority_only)
     items = [
         PendingDetailItem(
             property_id=p.id,
@@ -274,7 +278,7 @@ def get_pending_details(
         )
         for p in pending_props
     ]
-    return PendingDetailsResponse(pending_count=len(items), items=items)
+    return PendingDetailsResponse(pending_count=total_count, items=items)
 
 
 @router.post("/details/{idealista_id}", response_model=DetailSnapshotSubmitResponse)

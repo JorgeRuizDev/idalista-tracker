@@ -4,6 +4,37 @@
 
 export type SoldStatusFilter = 'all' | 'only_active' | 'only_sold';
 
+export type IntervalMetricType =
+  | 'inclusions'
+  | 'sales'
+  | 'price_drops'
+  | 'price_increases'
+  | 'all';
+
+export interface PropertyQueryParams {
+  movement_type?: IntervalMetricType | string;
+  status?: string;
+  zone?: string;
+  min_price?: number;
+  max_price?: number;
+  date_from?: string;
+  date_to?: string;
+  has_price_drop?: boolean;
+  search?: string;
+  sort_by?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface IntervalDrilldownFilterState {
+  metric: IntervalMetricType | null;
+  zone: string | null;
+  startDate: string;
+  endDate: string;
+  offset: number;
+  limit: number;
+}
+
 export type PropertySortBy =
   | 'discount_desc'
   | 'days_desc'
@@ -11,6 +42,38 @@ export type PropertySortBy =
   | 'price_desc'
   | 'm2_asc'
   | 'date_desc';
+
+export type DetailStatus = 'legacy' | 'pending' | 'completed' | 'discarded';
+
+export interface PropertyPhotoItem {
+  id?: number;
+  sequence_index: number;
+  local_file_path?: string;
+  local_url?: string;
+  original_url: string;
+  caption?: string | null;
+}
+
+export interface PropertySnapshot {
+  crawled_at: string;
+  source_engine: string;
+  full_description: string;
+  neighborhood?: string | null;
+  district?: string | null;
+  city?: string | null;
+  province?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  features?: Record<string, string[] | any> | null;
+  photos: PropertyPhotoItem[];
+}
+
+export interface PropertySnapshotResponse {
+  property_id: number;
+  idealista_id: string;
+  detail_status: DetailStatus;
+  snapshot: PropertySnapshot | null;
+}
 
 export interface PriceHistoryEntry {
   id: number;
@@ -40,6 +103,7 @@ export interface Property {
   floor?: string | null;
   has_elevator?: boolean | null;
   status: 'active' | 'sold' | 'missing';
+  detail_status?: DetailStatus;
   first_seen_at?: string | null;
   last_seen_at?: string | null;
   sold_at?: string | null;

@@ -49,13 +49,17 @@ class TestAnalyticsFrontendFlowE2E:
         assert "San Pedro de la Fuente" in zone_names
         assert "Los Vadillos - Reyes Católicos" in zone_names
 
-        # Verify census totals match sum of property records (2,190 in idealista_properties.db)
+        # Verify census totals match sum of property records in idealista_properties.db
+        session = SessionLocal()
+        expected_total = session.query(Property).count()
+        session.close()
+
         total_in_zones = sum(z["total"] for z in zones)
-        assert total_in_zones == 2190
+        assert total_in_zones == expected_total
         total_sold = sum(z["sold"] for z in zones)
         total_active = sum(z["active"] for z in zones)
         total_missing = sum(z["missing"] for z in zones)
-        assert total_sold + total_active + total_missing == 2190
+        assert total_sold + total_active + total_missing == expected_total
 
     def test_02_property_explorer_filtering_workflow(self, real_db_client):
         """Verify property listing filters for sold, active, zone, and date ranges."""

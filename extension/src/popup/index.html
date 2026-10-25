@@ -22,6 +22,13 @@
         <span id="server-status-text" class="status-value">Checking...</span>
         <button id="test-connection" class="btn btn-small">Test</button>
       </div>
+      <div class="status-row" style="margin-top: 6px;">
+        <span class="status-label">Fichas pendientes:</span>
+        <span id="pending-count-badge" class="badge" style="background: #fef3c7; color: #92400e; font-weight: 600;">
+          <span id="pending-count">0</span> pendientes
+        </span>
+        <button id="refresh-pending" class="btn btn-small btn-secondary" title="Refrescar cola">↻</button>
+      </div>
       <div id="connection-error" class="error-message hidden"></div>
     </section>
 
@@ -39,14 +46,18 @@
     <section id="crawl-section">
       <h2>Crawl Control</h2>
       <div id="crawl-status" class="crawl-status">
-        <p>Status: <span id="crawl-state">Idle</span></p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <p>Status: <span id="crawl-state">Idle</span></p>
+          <span id="stage-badge" class="badge idle" style="font-size: 11px; background: #e5e7eb; color: #374151;">Etapa: Inactivo</span>
+        </div>
         <div id="progress-bar" class="progress-bar hidden">
           <div class="progress-fill"></div>
         </div>
         <p id="progress-text" class="progress-text"></p>
       </div>
       <div class="button-group">
-        <button id="start-crawl" class="btn btn-primary" disabled>Start Crawl</button>
+        <button id="start-crawl" class="btn btn-primary" disabled>Iniciar Rastreo Completo</button>
+        <button id="start-detail-crawl" class="btn btn-secondary">Analizar fichas pendientes</button>
         <button id="pause-crawl" class="btn btn-warning hidden">Pause</button>
         <button id="resume-crawl" class="btn btn-primary hidden">Resume</button>
         <button id="stop-crawl" class="btn btn-danger hidden">Stop</button>

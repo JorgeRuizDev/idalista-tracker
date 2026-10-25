@@ -2,6 +2,7 @@
 import type { CrawlConfig, CrawlState, SavedSearch, Property, PaginationInfo } from '../types';
 import * as storage from './storage';
 import * as api from './api';
+import { runFullPendingDetailQueue } from './detail_crawler';
 
 // Crawl state
 let isRunning = false;
@@ -63,6 +64,7 @@ export async function startCrawl(
     const crawlState: CrawlState = {
       is_running: true,
       session_id: session.id,
+      stage: 'discovery',
       progress: {
         total_searches: selectedSearches.length,
         completed_searches: 0,
@@ -187,7 +189,7 @@ async function crawlLoop(): Promise<void> {
   
   // Complete session
   if (isRunning && currentSessionId) {
-    console.log('All searches completed, finalizing session');
+    console.log('All searches completed, finalizing discovery session');
     const state = await storage.getCrawlState();
     if (state) {
       try {
@@ -196,26 +198,121 @@ async function crawlLoop(): Promise<void> {
           pages_processed: state.progress.total_pages,
           searches_crawled: state.progress.completed_searches,
         });
-        console.log('Session completed successfully');
+        console.log('Discovery session completed successfully');
       } catch (error) {
         console.error('Failed to complete session:', error);
       }
     }
   }
-  
+
+  // Stage 2: Deep Analysis of Pending Listings & New Inclusions
+  if (isRunning && !abortController?.signal.aborted) {
+    console.log('[Crawler] Chaining to Stage 2: Deep Analysis of pending listings and new inclusions...');
+    const state = await storage.getCrawlState();
+    if (state) {
+      state.stage = 'deep_analysis';
+      await storage.saveCrawlState(state);
+    }
+
+    try {
+      await runFullPendingDetailQueue({
+        onProgress: async progress => {
+          const currentState = await storage.getCrawlState();
+          if (currentState) {
+            currentState.stage = progress.stage;
+            currentState.detail_progress = progress;
+            await storage.saveCrawlState(currentState);
+          }
+          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+            chrome.runtime
+              .sendMessage({
+                type: 'DETAIL_CRAWL_PROGRESS',
+                progress,
+              })
+              .catch(() => {});
+          }
+        },
+        isCancelled: () => !isRunning || Boolean(abortController?.signal.aborted),
+      });
+    } catch (err) {
+      console.error('[Crawler] Error in Stage 2 deep analysis:', err);
+    }
+  }
+
   isRunning = false;
-  
+
   // Update state to reflect crawl is no longer running
   const finalState = await storage.getCrawlState();
   if (finalState) {
     finalState.is_running = false;
+    finalState.stage = 'completed';
     await storage.saveCrawlState(finalState);
   }
-  
+
   currentSessionId = null;
   currentSearchIndex = 0;
-  
+
   console.log('Crawl loop ended');
+}
+
+/**
+ * Start on-demand detail crawl only (Stage 2) without re-running search discovery.
+ */
+export async function startDetailCrawlOnly(): Promise<{ success: boolean; error?: string }> {
+  if (isRunning) {
+    return { success: false, error: 'Crawl already running' };
+  }
+  isRunning = true;
+  abortController = new AbortController();
+
+  const crawlState: CrawlState = {
+    is_running: true,
+    stage: 'deep_analysis',
+    progress: {
+      total_searches: 0,
+      completed_searches: 0,
+      total_pages: 0,
+      total_properties: 0,
+    },
+  };
+  await storage.saveCrawlState(crawlState);
+
+  // Run in background
+  (async () => {
+    try {
+      await runFullPendingDetailQueue({
+        onProgress: async progress => {
+          const currentState = await storage.getCrawlState();
+          if (currentState) {
+            currentState.stage = progress.stage;
+            currentState.detail_progress = progress;
+            await storage.saveCrawlState(currentState);
+          }
+          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+            chrome.runtime
+              .sendMessage({
+                type: 'DETAIL_CRAWL_PROGRESS',
+                progress,
+              })
+              .catch(() => {});
+          }
+        },
+        isCancelled: () => !isRunning || Boolean(abortController?.signal.aborted),
+      });
+    } catch (err) {
+      console.error('[Crawler] Error during on-demand detail crawl:', err);
+    } finally {
+      isRunning = false;
+      const finalState = await storage.getCrawlState();
+      if (finalState) {
+        finalState.is_running = false;
+        finalState.stage = 'completed';
+        await storage.saveCrawlState(finalState);
+      }
+    }
+  })();
+
+  return { success: true };
 }
 
 /**

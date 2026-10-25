@@ -36,6 +36,10 @@ const connectionErrorEl = document.getElementById('connection-error') as HTMLDiv
 const logWindowEl = document.getElementById('log-window') as HTMLDivElement;
 const clearLogBtn = document.getElementById('clear-log') as HTMLButtonElement;
 const openSettingsBtn = document.getElementById('open-settings') as HTMLButtonElement;
+const pendingCountEl = document.getElementById('pending-count') as HTMLSpanElement;
+const refreshPendingBtn = document.getElementById('refresh-pending') as HTMLButtonElement;
+const startDetailCrawlBtn = document.getElementById('start-detail-crawl') as HTMLButtonElement;
+const stageBadgeEl = document.getElementById('stage-badge') as HTMLSpanElement;
 
 // State
 let searches: SavedSearch[] = [];
@@ -55,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadConfig();
       await checkServerStatus();
       await loadSearches();
+      await refreshPendingCount();
       
       // Check current crawl status and update UI
       const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' }) as GetStatusResponse;
@@ -75,12 +80,21 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshBtn.addEventListener('click', loadSearches);
   syncBtn.addEventListener('click', syncSearchesFromIdealista);
   startCrawlBtn.addEventListener('click', startCrawl);
+  startDetailCrawlBtn?.addEventListener('click', startDetailCrawl);
+  refreshPendingBtn?.addEventListener('click', refreshPendingCount);
   pauseCrawlBtn.addEventListener('click', pauseCrawl);
   resumeCrawlBtn.addEventListener('click', resumeCrawl);
   stopCrawlBtn.addEventListener('click', stopCrawl);
   testConnectionBtn.addEventListener('click', checkServerStatus);
   clearLogBtn.addEventListener('click', clearLog);
   openSettingsBtn.addEventListener('click', openSettings);
+
+  // Listen for detail crawl progress broadcast
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'DETAIL_CRAWL_PROGRESS' && message.progress) {
+      handleDetailProgressUpdate(message.progress);
+    }
+  });
 });
 
 // Add log entry
@@ -406,7 +420,7 @@ async function updateStatus(): Promise<void> {
 }
 
 // Update UI based on crawl state
-function updateUIState(status: GetStatusResponse): void {
+function updateUIState(status: any): void {
   try {
     const isRunning = status.is_running;
     
@@ -420,15 +434,45 @@ function updateUIState(status: GetStatusResponse): void {
     if (crawlStateEl) {
       crawlStateEl.textContent = isRunning ? 'Crawling...' : 'Idle';
     }
+
+    // Update Stage badge
+    if (stageBadgeEl) {
+      if (!isRunning) {
+        stageBadgeEl.textContent = 'Etapa: Inactivo';
+        stageBadgeEl.style.background = '#e5e7eb';
+        stageBadgeEl.style.color = '#374151';
+      } else if (status.stage === 'discovery') {
+        stageBadgeEl.textContent = 'Etapa 1: Búsqueda';
+        stageBadgeEl.style.background = '#dbeafe';
+        stageBadgeEl.style.color = '#1e40af';
+      } else if (status.stage === 'deep_analysis') {
+        stageBadgeEl.textContent = 'Etapa 2: Fichas';
+        stageBadgeEl.style.background = '#e0e7ff';
+        stageBadgeEl.style.color = '#3730a3';
+      } else if (status.stage === 'paused_challenge') {
+        stageBadgeEl.textContent = 'Reto Anti-Bot';
+        stageBadgeEl.style.background = '#fee2e2';
+        stageBadgeEl.style.color = '#991b1b';
+      }
+    }
     
     // Update buttons
     if (startCrawlBtn) startCrawlBtn.classList.toggle('hidden', isRunning);
+    if (startDetailCrawlBtn) startDetailCrawlBtn.classList.toggle('hidden', isRunning);
     if (pauseCrawlBtn) pauseCrawlBtn.classList.toggle('hidden', !isRunning);
     if (resumeCrawlBtn) resumeCrawlBtn.classList.toggle('hidden', true);
     if (stopCrawlBtn) stopCrawlBtn.classList.toggle('hidden', !isRunning);
     
     // Update progress
-    if (status.progress) {
+    if (status.stage === 'deep_analysis' && status.detail_progress) {
+      const dp = status.detail_progress;
+      if (progressText) progressText.textContent = dp.status;
+      if (dp.total > 0 && progressFill && progressBar) {
+        const pct = Math.min(100, Math.round((dp.current / dp.total) * 100));
+        progressFill.style.width = `${pct}%`;
+        progressBar.classList.remove('hidden');
+      }
+    } else if (status.progress) {
       const { total_searches, completed_searches, total_pages, total_properties } = status.progress;
       
       const statSearches = document.getElementById('stat-searches');
@@ -451,6 +495,79 @@ function updateUIState(status: GetStatusResponse): void {
     }
   } catch (error) {
     console.error('Error updating UI:', error);
+  }
+}
+
+async function refreshPendingCount(): Promise<void> {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'GET_PENDING_DETAILS_COUNT' });
+    if (res && res.success) {
+      if (pendingCountEl) pendingCountEl.textContent = String(res.count);
+      if (startDetailCrawlBtn) {
+        startDetailCrawlBtn.disabled = res.count === 0 || !isServerOnline;
+      }
+    }
+  } catch (err) {
+    console.debug('Failed to get pending count:', err);
+  }
+}
+
+async function startDetailCrawl(): Promise<void> {
+  if (!isServerOnline) {
+    alert('Backend is not connected. Please check your settings.');
+    return;
+  }
+  try {
+    if (startDetailCrawlBtn) {
+      startDetailCrawlBtn.disabled = true;
+      startDetailCrawlBtn.textContent = 'Iniciando...';
+    }
+    addLogEntry('Iniciando análisis profundo de fichas pendientes...', 'info');
+    const res = await chrome.runtime.sendMessage({ type: 'START_DETAIL_CRAWL_ONLY' });
+    if (res && res.success) {
+      addLogEntry('Análisis profundo iniciado en segundo plano', 'success');
+      updateUIState({
+        is_running: true,
+        stage: 'deep_analysis',
+        progress: { total_searches: 0, completed_searches: 0, total_pages: 0, total_properties: 0 },
+      });
+      setTimeout(() => updateStatus(), 1000);
+    } else {
+      addLogEntry(`Error al iniciar análisis: ${res?.error || 'Desconocido'}`, 'error');
+    }
+  } catch (err) {
+    addLogEntry(`Error: ${(err as Error).message}`, 'error');
+  } finally {
+    if (startDetailCrawlBtn) {
+      startDetailCrawlBtn.disabled = false;
+      startDetailCrawlBtn.textContent = 'Analizar fichas pendientes';
+    }
+  }
+}
+
+function handleDetailProgressUpdate(progress: any): void {
+  if (crawlStateEl) crawlStateEl.textContent = progress.status;
+  if (stageBadgeEl) {
+    if (progress.stage === 'paused_challenge') {
+      stageBadgeEl.textContent = 'Reto Anti-Bot';
+      stageBadgeEl.style.background = '#fee2e2';
+      stageBadgeEl.style.color = '#991b1b';
+    } else if (progress.stage === 'deep_analysis') {
+      stageBadgeEl.textContent = 'Etapa 2: Fichas';
+      stageBadgeEl.style.background = '#e0e7ff';
+      stageBadgeEl.style.color = '#3730a3';
+    } else if (progress.stage === 'completed') {
+      stageBadgeEl.textContent = 'Completado';
+      stageBadgeEl.style.background = '#dcfce7';
+      stageBadgeEl.style.color = '#166534';
+      refreshPendingCount();
+    }
+  }
+  if (progressText) progressText.textContent = progress.status;
+  if (progress.total > 0 && progressFill && progressBar) {
+    const pct = Math.min(100, Math.round((progress.current / progress.total) * 100));
+    progressFill.style.width = `${pct}%`;
+    progressBar.classList.remove('hidden');
   }
 }
 

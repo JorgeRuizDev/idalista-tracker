@@ -4,23 +4,13 @@ import type {
   NormalizedZone,
   Property,
   PropertyListResponse,
+  PropertyQueryParams,
+  PropertySnapshotResponse,
 } from '../types/property';
 
-const API_BASE = '/api/v1';
+export type { PropertyQueryParams };
 
-export interface PropertyQueryParams {
-  status?: string;
-  zone?: string;
-  min_price?: number;
-  max_price?: number;
-  date_from?: string;
-  date_to?: string;
-  has_price_drop?: boolean;
-  search?: string;
-  sort_by?: string;
-  limit?: number;
-  offset?: number;
-}
+const API_BASE = '/api/v1';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
@@ -56,6 +46,9 @@ export const api = {
    */
   async getProperties(params: PropertyQueryParams = {}): Promise<PropertyListResponse> {
     const query = new URLSearchParams();
+    if (params.movement_type && params.movement_type !== 'all') {
+      query.append('movement_type', params.movement_type);
+    }
     if (params.status && params.status !== 'all') {
       query.append('status', params.status);
     }
@@ -99,6 +92,13 @@ export const api = {
    */
   async getPropertyDetail(idealistaId: string): Promise<Property> {
     return request<Property>(`/properties/${encodeURIComponent(idealistaId)}`);
+  },
+
+  /**
+   * Fetch full property detail snapshot including photos and features.
+   */
+  async getPropertySnapshot(propertyId: number | string): Promise<PropertySnapshotResponse> {
+    return request<PropertySnapshotResponse>(`/properties/${encodeURIComponent(propertyId)}/snapshot`);
   },
 
   /**

@@ -7,7 +7,9 @@ import type { DetailSnapshotPayload, DetailPhotoItem } from '../types';
  * Check if the current page represents a delisted property.
  */
 export function isListingDelisted(): boolean {
-  const pageText = document.body ? document.body.innerText.toLowerCase() : '';
+  const pageText = document.body
+    ? (document.body.innerText || document.body.textContent || '').toLowerCase()
+    : '';
   const delistedPhrases = [
     'el anuncio ya no está publicado',
     'anuncio dado de baja',

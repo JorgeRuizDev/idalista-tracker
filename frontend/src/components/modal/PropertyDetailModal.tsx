@@ -3,6 +3,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Calendar,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -12,7 +13,7 @@ import {
   MapPin,
   X,
 } from 'lucide-react';
-import type { PriceHistoryEntry, Property } from '../../types/property';
+import type { DetailStatus, PriceHistoryEntry, Property, PropertySnapshot } from '../../types/property';
 import { api } from '../../services/api';
 
 interface PropertyDetailModalProps {
@@ -24,11 +25,18 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [detailedHistory, setDetailedHistory] = useState<PriceHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [snapshot, setSnapshot] = useState<PropertySnapshot | null>(null);
+  const [detailStatus, setDetailStatus] = useState<DetailStatus | undefined>(property?.detail_status);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
 
   useEffect(() => {
     setActivePhotoIndex(0);
+    setSnapshot(null);
     if (!property) return;
 
+    setDetailStatus(property.detail_status);
+
+    // 1. Load price history
     if (property.price_history && property.price_history.length > 0) {
       setDetailedHistory(property.price_history);
     } else {
@@ -45,23 +53,94 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
         })
         .finally(() => setLoadingHistory(false));
     }
+
+    // 2. Load property snapshot if available
+    setLoadingSnapshot(true);
+    const identifier = property.id || property.idealista_id;
+    api
+      .getPropertySnapshot(identifier)
+      .then((res) => {
+        if (res.detail_status) {
+          setDetailStatus(res.detail_status);
+        }
+        if (res.snapshot) {
+          setSnapshot(res.snapshot);
+        }
+      })
+      .catch(() => {
+        // Not yet crawled or 404
+      })
+      .finally(() => setLoadingSnapshot(false));
   }, [property]);
 
-  // Keyboard shortcut for closing
+  // Determine photo list (prefer snapshot local photos if completed)
+  const proxyEndpoint = property?.idealista_id
+    ? `/api/v1/properties/${property.idealista_id}/image`
+    : null;
+
+  const [failedPhotoIndices, setFailedPhotoIndices] = useState<Set<number>>(new Set());
+  const [modalImgFailed, setModalImgFailed] = useState<boolean>(false);
+
+  // Derive photos list directly from snapshot or property
+  const basePhotos: string[] =
+    snapshot?.photos && snapshot.photos.length > 0
+      ? snapshot.photos.map((p) => {
+          if (p.local_url) return p.local_url;
+          if (p.local_file_path) {
+            return p.local_file_path.startsWith('/') || p.local_file_path.startsWith('http')
+              ? p.local_file_path
+              : `/media/${p.local_file_path}`;
+          }
+          return p.original_url;
+        })
+      : property?.photos && property.photos.length > 0
+      ? property.photos
+      : proxyEndpoint
+      ? [proxyEndpoint]
+      : [];
+
+  const photos = basePhotos.map((url, idx) => {
+    if (failedPhotoIndices.has(idx) && proxyEndpoint && url !== proxyEndpoint) {
+      return proxyEndpoint;
+    }
+    return url;
+  });
+
+  // Reset indices when property changes
+  useEffect(() => {
+    setFailedPhotoIndices(new Set());
+    setModalImgFailed(false);
+    setActivePhotoIndex(0);
+  }, [property?.idealista_id]);
+
+  // Keyboard navigation for closing and photo browsing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'ArrowLeft') {
+        setActivePhotoIndex((prev) => (photos.length > 0 ? (prev === 0 ? photos.length - 1 : prev - 1) : 0));
+      } else if (e.key === 'ArrowRight') {
+        setActivePhotoIndex((prev) => (photos.length > 0 ? (prev === photos.length - 1 ? 0 : prev + 1) : 0));
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, photos.length]);
 
   if (!property) return null;
 
-  const photos = property.photos && property.photos.length > 0 ? property.photos : [];
   const currentPhoto = photos[activePhotoIndex] || null;
   const isSold = property.status === 'sold';
   const hasDiscount = property.discount_amount > 0;
+
+  const handleModalPhotoError = () => {
+    if (proxyEndpoint && currentPhoto !== proxyEndpoint) {
+      setFailedPhotoIndices((prev) => new Set(prev).add(activePhotoIndex));
+    } else {
+      setModalImgFailed(true);
+    }
+  };
 
   const formatDate = (isoString?: string | null) => {
     if (!isoString) return '—';
@@ -100,6 +179,31 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
               {isSold && <Flame className="w-3.5 h-3.5" />}
               {isSold ? 'VENDIDO' : 'Activo'}
             </span>
+
+            {/* Detail Snapshot Status Pill */}
+            {detailStatus === 'completed' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Ficha completa</span>
+              </span>
+            )}
+            {detailStatus === 'pending' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                <Clock className="w-3.5 h-3.5" />
+                <span>Pendiente de análisis</span>
+              </span>
+            )}
+            {detailStatus === 'discarded' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                <span>Descartado</span>
+              </span>
+            )}
+            {detailStatus === 'legacy' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                <span>Histórico</span>
+              </span>
+            )}
+
             <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
               Ref: {property.idealista_id}
             </span>
@@ -135,11 +239,13 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
             {/* Photo Carousel */}
             <div className="space-y-2">
               <div className="relative aspect-[4/3] rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-800">
-                {currentPhoto ? (
+                {currentPhoto && !modalImgFailed ? (
                   <img
                     src={currentPhoto}
                     alt={property.title}
+                    referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
+                    onError={handleModalPhotoError}
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
@@ -186,7 +292,7 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                   {photos.map((ph, idx) => (
                     <button
-                      key={ph}
+                      key={ph + idx}
                       type="button"
                       onClick={() => setActivePhotoIndex(idx)}
                       className={`relative w-14 h-14 rounded-lg overflow-hidden shrink-0 border-2 transition-all ${
@@ -195,7 +301,12 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                           : 'border-transparent opacity-60 hover:opacity-100'
                       }`}
                     >
-                      <img src={ph} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={ph}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
                     </button>
                   ))}
                 </div>
@@ -207,7 +318,7 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
               <div>
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1">
                   <MapPin className="w-4 h-4" />
-                  <span>{property.zone}</span>
+                  <span>{snapshot?.neighborhood || property.zone}</span>
                 </div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-snug">
                   {property.title}
@@ -292,6 +403,60 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
             </div>
           </div>
 
+          {/* Full Description Section */}
+          {loadingSnapshot ? (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+              <p className="text-xs text-slate-400 italic">Cargando detalles de la ficha...</p>
+            </div>
+          ) : snapshot?.full_description ? (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                <span>Descripción Completa</span>
+              </h3>
+              <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+                {snapshot.full_description}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Structured Features & Equipment Tags */}
+          {snapshot?.features && Object.keys(snapshot.features).length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3">
+                Características y Equipamiento
+              </h3>
+              <div className="space-y-3">
+                {Object.entries(snapshot.features).map(([groupTitle, items]) => {
+                  const list: string[] = Array.isArray(items)
+                    ? items.map(String)
+                    : typeof items === 'object' && items !== null
+                    ? Object.entries(items).map(([k, v]) => `${k}: ${v}`)
+                    : [String(items)];
+
+                  if (list.length === 0) return null;
+
+                  return (
+                    <div key={groupTitle}>
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                        {groupTitle}
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {list.map((feat, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                          >
+                            {feat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Chronological Price History Timeline */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
@@ -336,13 +501,13 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                           </span>
                           {isDrop && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                              <ArrowDownRight className="w-3 h-3" />
+                              <ArrowDownRight className="w-3.5 h-3.5" />
                               -{diffPct}% (-{Math.abs(diff).toLocaleString('es-ES')} €)
                             </span>
                           )}
                           {isIncrease && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[11px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                              <ArrowUpRight className="w-3 h-3" />
+                              <ArrowUpRight className="w-3.5 h-3.5" />
                               +{diffPct}% (+{Math.abs(diff).toLocaleString('es-ES')} €)
                             </span>
                           )}

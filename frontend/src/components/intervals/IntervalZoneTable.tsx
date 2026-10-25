@@ -2,14 +2,21 @@ import { useState } from 'react';
 import { ArrowUpDown, Flame, MapPin } from 'lucide-react';
 import type { IntervalZoneMetric } from '../../types/property';
 
-interface IntervalZoneTableProps {
+export interface IntervalZoneTableProps {
   zoneBreakdown: IntervalZoneMetric[];
   intervalLabel: string;
+  selectedZone?: string | null;
+  onSelectZone?: (zone: string) => void;
 }
 
 type SortField = 'zone' | 'inclusions' | 'sales' | 'avg_days_to_sell' | 'avg_discount_pct' | 'avg_sale_price';
 
-export function IntervalZoneTable({ zoneBreakdown, intervalLabel }: IntervalZoneTableProps) {
+export function IntervalZoneTable({
+  zoneBreakdown,
+  intervalLabel,
+  selectedZone,
+  onSelectZone,
+}: IntervalZoneTableProps) {
   const [sortField, setSortField] = useState<SortField>('sales');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
@@ -44,9 +51,16 @@ export function IntervalZoneTable({ zoneBreakdown, intervalLabel }: IntervalZone
             Desglose de captaciones, ventas y precios de cierre en {intervalLabel}
           </p>
         </div>
-        <span className="text-xs px-2.5 py-1 rounded-full font-mono bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-          {zoneBreakdown.length} zonas activas
-        </span>
+        <div className="flex items-center gap-2">
+          {selectedZone && (
+            <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+              Filtro activo: {selectedZone}
+            </span>
+          )}
+          <span className="text-xs px-2.5 py-1 rounded-full font-mono bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+            {zoneBreakdown.length} zonas activas
+          </span>
+        </div>
       </div>
 
       {/* Table */}
@@ -111,37 +125,54 @@ export function IntervalZoneTable({ zoneBreakdown, intervalLabel }: IntervalZone
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {sortedData.map((row) => (
-              <tr
-                key={row.zone}
-                className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-              >
-                <td className="py-3 px-4 font-medium text-slate-900 dark:text-white">
-                  <div className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    <span>{row.zone}</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4 text-right tabular-nums font-bold text-rose-600 dark:text-rose-400">
-                  <div className="flex items-center justify-end gap-1">
-                    {row.sales > 0 && <Flame className="w-3.5 h-3.5" />}
-                    <span>{row.sales}</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                  {row.inclusions}
-                </td>
-                <td className="py-3 px-4 text-right tabular-nums text-slate-600 dark:text-slate-400">
-                  {row.avg_days_to_sell > 0 ? `${row.avg_days_to_sell} días` : '—'}
-                </td>
-                <td className="py-3 px-4 text-right tabular-nums text-amber-600 dark:text-amber-400 font-medium">
-                  {row.avg_discount_pct > 0 ? `-${row.avg_discount_pct}%` : '0%'}
-                </td>
-                <td className="py-3 px-4 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
-                  {row.avg_sale_price > 0 ? `${row.avg_sale_price.toLocaleString('es-ES')} €` : '—'}
-                </td>
-              </tr>
-            ))}
+            {sortedData.map((row) => {
+              const isSelected = selectedZone === row.zone;
+              return (
+                <tr
+                  key={row.zone}
+                  role="row"
+                  tabIndex={0}
+                  aria-selected={isSelected}
+                  onClick={() => onSelectZone?.(row.zone)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelectZone?.(row.zone);
+                    }
+                  }}
+                  className={`cursor-pointer transition-colors outline-none focus-visible:bg-indigo-50/50 dark:focus-visible:bg-indigo-950/30 ${
+                    isSelected
+                      ? 'border-l-4 border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 font-semibold'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/40 border-l-4 border-transparent'
+                  }`}
+                >
+                  <td className="py-3 px-4 font-medium text-slate-900 dark:text-white">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span>{row.zone}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums font-bold text-rose-600 dark:text-rose-400">
+                    <div className="flex items-center justify-end gap-1">
+                      {row.sales > 0 && <Flame className="w-3.5 h-3.5" />}
+                      <span>{row.sales}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                    {row.inclusions}
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums text-slate-600 dark:text-slate-400">
+                    {row.avg_days_to_sell > 0 ? `${row.avg_days_to_sell} días` : '—'}
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums text-amber-600 dark:text-amber-400 font-medium">
+                    {row.avg_discount_pct > 0 ? `-${row.avg_discount_pct}%` : '0%'}
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
+                    {row.avg_sale_price > 0 ? `${row.avg_sale_price.toLocaleString('es-ES')} €` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

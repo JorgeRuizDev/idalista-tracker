@@ -1,3 +1,4 @@
+import type React from 'react';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -8,14 +9,21 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import type { IntervalAudit } from '../../types/property';
+import type { IntervalAudit, IntervalMetricType } from '../../types/property';
 
-interface IntervalMetricCardsProps {
+export interface IntervalMetricCardsProps {
   data: IntervalAudit | null;
   isLoading?: boolean;
+  selectedMetric?: IntervalMetricType | null;
+  onSelectMetric?: (metric: IntervalMetricType) => void;
 }
 
-export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProps) {
+export function IntervalMetricCards({
+  data,
+  isLoading,
+  selectedMetric,
+  onSelectMetric,
+}: IntervalMetricCardsProps) {
   if (isLoading || !data) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -33,10 +41,34 @@ export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProp
     );
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent, metric: IntervalMetricType) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelectMetric?.(metric);
+    }
+  };
+
+  const getCardClasses = (metric: IntervalMetricType) => {
+    const isSelected = selectedMetric === metric;
+    return `p-4 rounded-2xl border shadow-sm flex flex-col justify-between cursor-pointer transition-all select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+      isSelected
+        ? 'ring-2 ring-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/30 border-indigo-500 shadow-md'
+        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700/60 hover:shadow-md'
+    }`;
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
       {/* 1. Inclusiones */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selectedMetric === 'inclusions'}
+        aria-label={`Filtrar por Inclusiones: ${data.inclusions} nuevos anuncios`}
+        onClick={() => onSelectMetric?.('inclusions')}
+        onKeyDown={(e) => handleKeyDown(e, 'inclusions')}
+        className={getCardClasses('inclusions')}
+      >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             Inclusiones
@@ -56,7 +88,15 @@ export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProp
       </div>
 
       {/* 2. Ventas */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selectedMetric === 'sales'}
+        aria-label={`Filtrar por Ventas Concluidas: ${data.sales} inmuebles vendidos`}
+        onClick={() => onSelectMetric?.('sales')}
+        onKeyDown={(e) => handleKeyDown(e, 'sales')}
+        className={getCardClasses('sales')}
+      >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             Ventas Concluidas
@@ -76,7 +116,15 @@ export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProp
       </div>
 
       {/* 3. Rebajas */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selectedMetric === 'price_drops'}
+        aria-label={`Filtrar por Rebajas de Precio: ${data.drops_count} inmuebles con rebajas`}
+        onClick={() => onSelectMetric?.('price_drops')}
+        onKeyDown={(e) => handleKeyDown(e, 'price_drops')}
+        className={getCardClasses('price_drops')}
+      >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             Rebajas de Precio
@@ -103,7 +151,15 @@ export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProp
       </div>
 
       {/* 4. Subidas */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selectedMetric === 'price_increases'}
+        aria-label={`Filtrar por Aumentos de Precio: ${data.increases_count} revisiones al alza`}
+        onClick={() => onSelectMetric?.('price_increases')}
+        onKeyDown={(e) => handleKeyDown(e, 'price_increases')}
+        className={getCardClasses('price_increases')}
+      >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             Aumentos de Precio
@@ -130,7 +186,7 @@ export function IntervalMetricCards({ data, isLoading }: IntervalMetricCardsProp
         </div>
       </div>
 
-      {/* 5. Días Medios hasta Venta */}
+      {/* 5. Días Medios hasta Venta (Informativo, no interactivo como filtro) */}
       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">

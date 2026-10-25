@@ -32,6 +32,7 @@ export interface SavedSearch {
 export interface CrawlState {
   is_running: boolean;
   session_id?: number;
+  stage?: CrawlStage;
   current_search?: {
     id: number;
     name: string;
@@ -43,6 +44,7 @@ export interface CrawlState {
     total_pages: number;
     total_properties: number;
   };
+  detail_progress?: DetailCrawlProgress;
 }
 
 /** Crawl configuration */
@@ -293,6 +295,23 @@ export interface PaginationInfo {
   has_next_page: boolean;
   next_page_url?: string;
   total_pages?: number;
+}
+
+export type CrawlStage =
+  | 'idle'
+  | 'discovery'
+  | 'deep_analysis'
+  | 'paused_challenge'
+  | 'completed'
+  | 'error';
+
+export interface DetailCrawlProgress {
+  total: number;
+  current: number;
+  currentIdealistaId?: string;
+  status: string;
+  stage: CrawlStage;
+  challengeActive?: boolean;
 }
 
 /** Photo item in detail crawl snapshot */

@@ -1,6 +1,8 @@
 """Property API routes."""
+
 import base64
 import re
+import urllib.request
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,7 +34,13 @@ router = APIRouter(prefix="/properties", tags=["properties"])
 
 @router.get("", response_model=PropertyListResponse)
 async def list_properties(
-    status: Optional[str] = Query(None, description="Listing status: 'all', 'active', 'sold', 'missing'"),
+    movement_type: Optional[str] = Query(
+        None,
+        description="Market movement type: 'inclusions', 'sales', 'price_drops', 'price_increases'",
+    ),
+    status: Optional[str] = Query(
+        None, description="Listing status: 'all', 'active', 'sold', 'missing'"
+    ),
     zone: Optional[str] = Query(None, description="Normalized canonical zone name"),
     min_price: Optional[int] = Query(None, description="Minimum price in euros"),
     max_price: Optional[int] = Query(None, description="Maximum price in euros"),
@@ -42,8 +50,13 @@ async def list_properties(
     search: Optional[str] = Query(None, description="Search keyword in title, address, zone"),
     location: Optional[str] = Query(None, description="Location substring search"),
     min_bedrooms: Optional[int] = Query(None, description="Minimum number of bedrooms"),
-    detail_status: Optional[str] = Query(None, description="Filter by detail status (legacy, pending, completed, discarded)"),
-    sort_by: str = Query("discount_desc", description="Sort field: discount_desc, days_desc, price_asc, price_desc, m2_asc, date_desc"),
+    detail_status: Optional[str] = Query(
+        None, description="Filter by detail status (legacy, pending, completed, discarded)"
+    ),
+    sort_by: str = Query(
+        "discount_desc",
+        description="Sort field: discount_desc, days_desc, price_asc, price_desc, m2_asc, date_desc",
+    ),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -74,6 +87,7 @@ async def list_properties(
     """
     service = PropertyService(db)
     properties, total = service.list_properties(
+        movement_type=movement_type,
         min_price=min_price,
         max_price=max_price,
         location=location,
@@ -185,10 +199,36 @@ async def get_property_image(
         if match:
             media_type = match.group(1)
             raw_bytes = base64.b64decode(match.group(2))
-            return Response(content=raw_bytes, media_type=media_type)
+            return Response(
+                content=raw_bytes,
+                media_type=media_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
 
     if prop.image_url:
-        return RedirectResponse(url=prop.image_url)
+        try:
+            req = urllib.request.Request(
+                prop.image_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw_bytes = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+                try:
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    prop.image_data = f"data:{content_type};base64,{b64}"
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                return Response(
+                    content=raw_bytes,
+                    media_type=content_type,
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+        except Exception:
+            return RedirectResponse(url=prop.image_url)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No image available")
 
@@ -347,6 +387,15 @@ async def get_property(
             detail={"error": "Property not found", "idealista_id": idealista_id},
         )
 
+    photos_list = [ph.original_url for ph in getattr(property_obj, "photos", [])]
+    if not photos_list:
+        if property_obj.image_data:
+            photos_list = [f"/api/v1/properties/{property_obj.idealista_id}/image"]
+            if property_obj.image_url:
+                photos_list.append(property_obj.image_url)
+        elif property_obj.image_url:
+            photos_list = [property_obj.image_url]
+    setattr(property_obj, "photos", photos_list)
     return PropertyDetailResponse.model_validate(property_obj)
 
 

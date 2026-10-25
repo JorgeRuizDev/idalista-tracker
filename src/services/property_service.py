@@ -1,4 +1,5 @@
 """Property service for business logic."""
+
 import base64
 import logging
 import urllib.request
@@ -41,11 +42,7 @@ class PropertyService:
         Returns:
             Property object or None if not found.
         """
-        return (
-            self.db.query(Property)
-            .filter(Property.idealista_id == idealista_id)
-            .first()
-        )
+        return self.db.query(Property).filter(Property.idealista_id == idealista_id).first()
 
     def get_property_with_history(self, idealista_id: str) -> Optional[Property]:
         """Get a property with its price history.
@@ -83,9 +80,11 @@ class PropertyService:
             return search.id
 
         # If not found, try to find by external_search_id
-        search = self.db.query(SavedSearch).filter(
-            SavedSearch.external_search_id == external_search_id
-        ).first()
+        search = (
+            self.db.query(SavedSearch)
+            .filter(SavedSearch.external_search_id == external_search_id)
+            .first()
+        )
 
         if search:
             return search.id
@@ -126,6 +125,7 @@ class PropertyService:
         sort_order: str = "desc",
         limit: int = 100,
         offset: int = 0,
+        movement_type: Optional[str] = None,
     ) -> Tuple[List[Property], int]:
         """List properties with extended sales filters, canonical zones, and pagination.
 
@@ -145,11 +145,60 @@ class PropertyService:
             sort_order: Sort order ('asc', 'desc').
             limit: Maximum results.
             offset: Pagination offset.
+            movement_type: Market dynamic movement ('inclusions', 'sales', 'price_drops', 'price_increases').
 
         Returns:
             Tuple of (properties list, total count).
         """
         query = self.db.query(Property)
+
+        # Date parsing helper for interval movement filters
+        dt_from: Optional[datetime] = None
+        dt_to: Optional[datetime] = None
+        if date_from:
+            try:
+                dt_from = datetime.fromisoformat(date_from)
+            except Exception:
+                pass
+        if date_to:
+            try:
+                dt_to = datetime.fromisoformat(date_to) + timedelta(days=1)
+            except Exception:
+                pass
+
+        # Apply movement_type filter matching AnalyticsService logic
+        if movement_type and movement_type != "all":
+            if movement_type == "inclusions":
+                if dt_from:
+                    query = query.filter(Property.first_seen_at >= dt_from)
+                if dt_to:
+                    query = query.filter(Property.first_seen_at < dt_to)
+            elif movement_type == "sales":
+                query = query.filter(Property.status == "sold")
+                if dt_from:
+                    query = query.filter(Property.sold_at >= dt_from)
+                if dt_to:
+                    query = query.filter(Property.sold_at < dt_to)
+            elif movement_type in ("price_drops", "price_increases"):
+                ph_query = self.db.query(PriceHistory.property_id).filter(
+                    PriceHistory.old_price.isnot(None),
+                    PriceHistory.new_price.isnot(None),
+                )
+                if dt_from:
+                    ph_query = ph_query.filter(PriceHistory.change_date >= dt_from)
+                if dt_to:
+                    ph_query = ph_query.filter(PriceHistory.change_date < dt_to)
+
+                if movement_type == "price_drops":
+                    ph_query = ph_query.filter(PriceHistory.new_price < PriceHistory.old_price)
+                elif movement_type == "price_increases":
+                    ph_query = ph_query.filter(PriceHistory.new_price > PriceHistory.old_price)
+
+                matched_ids = [r[0] for r in ph_query.distinct().all()]
+                if matched_ids:
+                    query = query.filter(Property.id.in_(matched_ids))
+                else:
+                    query = query.filter(Property.id == -1)
 
         # Apply base SQL filters
         if status and status != "all":
@@ -217,36 +266,36 @@ class PropertyService:
             filtered = [
                 p
                 for p in filtered
-                if getattr(p, "discount_amount", 0) > 0
-                or (p.price_drop_percentage or 0) > 0
+                if getattr(p, "discount_amount", 0) > 0 or (p.price_drop_percentage or 0) > 0
             ]
 
         if zone and zone != "all":
-            filtered = [p for p in filtered if getattr(p, "zone") == zone]
+            z_lower = zone.lower().strip()
+            filtered = [
+                p
+                for p in filtered
+                if getattr(p, "zone") == zone
+                or z_lower in getattr(p, "zone", "").lower()
+                or getattr(p, "zone", "").lower() in z_lower
+            ]
 
-        if date_from:
-            try:
-                dt_from = datetime.fromisoformat(date_from)
+        # Only apply generic date filtering if movement_type is not active
+        if not movement_type or movement_type == "all":
+            if date_from and dt_from:
                 filtered = [
                     p
                     for p in filtered
                     if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
                     and (p.sold_at if p.status == "sold" else p.first_seen_at) >= dt_from
                 ]
-            except Exception:
-                pass
 
-        if date_to:
-            try:
-                dt_to = datetime.fromisoformat(date_to) + timedelta(days=1)
+            if date_to and dt_to:
                 filtered = [
                     p
                     for p in filtered
                     if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
                     and (p.sold_at if p.status == "sold" else p.first_seen_at) < dt_to
                 ]
-            except Exception:
-                pass
 
         if search:
             s_lower = search.lower().strip()
@@ -278,7 +327,7 @@ class PropertyService:
                 return p.created_at or datetime.min
             return getattr(p, sort_by, p.created_at) or datetime.min
 
-        is_desc = (sort_order.lower() == "desc")
+        is_desc = sort_order.lower() == "desc"
         if sort_by in ("price_asc", "m2_asc"):
             is_desc = False
         elif sort_by in ("discount_desc", "days_desc", "price_desc", "date_desc"):
@@ -311,8 +360,13 @@ class PropertyService:
 
             for p in paginated:
                 p_photos = photos_by_prop.get(p.id, [])
-                if not p_photos and p.image_url:
-                    p_photos = [p.image_url]
+                if not p_photos:
+                    if p.image_data:
+                        p_photos = [f"/api/v1/properties/{p.idealista_id}/image"]
+                        if p.image_url:
+                            p_photos.append(p.image_url)
+                    elif p.image_url:
+                        p_photos = [p.image_url]
                 setattr(p, "photos_list", p_photos)
                 setattr(p, "price_history_count", hist_counts.get(p.id, 0))
 
@@ -344,10 +398,7 @@ class PropertyService:
 
         # Sort by drop percentage (highest first)
         properties = (
-            query.order_by(Property.price_drop_percentage.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
+            query.order_by(Property.price_drop_percentage.desc()).offset(offset).limit(limit).all()
         )
 
         return properties, total
@@ -360,19 +411,11 @@ class PropertyService:
         """
         # Basic counts
         total_properties = self.db.query(Property).count()
-        active_properties = (
-            self.db.query(Property).filter(Property.status == "active").count()
-        )
-        missing_properties = (
-            self.db.query(Property).filter(Property.status == "missing").count()
-        )
-        sold_properties = (
-            self.db.query(Property).filter(Property.status == "sold").count()
-        )
+        active_properties = self.db.query(Property).filter(Property.status == "active").count()
+        missing_properties = self.db.query(Property).filter(Property.status == "missing").count()
+        sold_properties = self.db.query(Property).filter(Property.status == "sold").count()
         properties_with_drops = (
-            self.db.query(Property)
-            .filter(Property.price_drop_percentage > 0)
-            .count()
+            self.db.query(Property).filter(Property.price_drop_percentage > 0).count()
         )
 
         properties_with_history = (
@@ -400,14 +443,16 @@ class PropertyService:
         properties_by_type = {t[0]: t[1] for t in type_counts}
 
         # Average days to sell (for properties with sold_at and missing_since)
-        avg_days_result = self.db.query(
-            func.avg(
-                func.julianday(Property.sold_at) - func.julianday(Property.missing_since)
+        avg_days_result = (
+            self.db.query(
+                func.avg(func.julianday(Property.sold_at) - func.julianday(Property.missing_since))
             )
-        ).filter(
-            Property.sold_at.isnot(None),
-            Property.missing_since.isnot(None),
-        ).first()
+            .filter(
+                Property.sold_at.isnot(None),
+                Property.missing_since.isnot(None),
+            )
+            .first()
+        )
 
         avg_days_to_sell = round(avg_days_result[0], 1) if avg_days_result[0] else None
 
@@ -521,15 +566,23 @@ class PropertyService:
         for date_str, entry in sorted(entries_by_date.items(), reverse=True):
             drop_amounts = entry.pop("drop_amounts")
             increase_amounts = entry.pop("increase_amounts")
-            result.append({
-                "date": date_str,
-                "new_properties": entry["new_properties"],
-                "new_inactives": entry["new_inactives"],
-                "price_drops": entry["price_drops"],
-                "price_increases": entry["price_increases"],
-                "avg_drop_amount": round(sum(drop_amounts) / len(drop_amounts), 2) if drop_amounts else None,
-                "avg_increase_amount": round(sum(increase_amounts) / len(increase_amounts), 2) if increase_amounts else None,
-            })
+            result.append(
+                {
+                    "date": date_str,
+                    "new_properties": entry["new_properties"],
+                    "new_inactives": entry["new_inactives"],
+                    "price_drops": entry["price_drops"],
+                    "price_increases": entry["price_increases"],
+                    "avg_drop_amount": (
+                        round(sum(drop_amounts) / len(drop_amounts), 2) if drop_amounts else None
+                    ),
+                    "avg_increase_amount": (
+                        round(sum(increase_amounts) / len(increase_amounts), 2)
+                        if increase_amounts
+                        else None
+                    ),
+                }
+            )
 
         return result
 
@@ -614,11 +667,7 @@ class PropertyService:
 
         properties_map = {}
         if all_ids:
-            props = (
-                self.db.query(Property)
-                .filter(Property.id.in_(all_ids))
-                .all()
-            )
+            props = self.db.query(Property).filter(Property.id.in_(all_ids)).all()
             properties_map = {p.id: p for p in props}
 
         def prop_summary(prop_id):
@@ -721,12 +770,14 @@ class PropertyService:
                 results.append(result)
             except Exception as e:
                 logger.error(f"Error processing property at index {idx}: {e}")
-                errors.append({
-                    "index": idx,
-                    "external_id": prop_data.get("external_id"),
-                    "code": "PROCESSING_ERROR",
-                    "message": str(e),
-                })
+                errors.append(
+                    {
+                        "index": idx,
+                        "external_id": prop_data.get("external_id"),
+                        "code": "PROCESSING_ERROR",
+                        "message": str(e),
+                    }
+                )
 
         self.db.commit()
         return results, errors
@@ -823,11 +874,13 @@ class PropertyService:
 
             # Check for changes
             if existing.current_price != price:
-                changes.append({
-                    "attribute": "price",
-                    "old_value": existing.current_price,
-                    "new_value": price,
-                })
+                changes.append(
+                    {
+                        "attribute": "price",
+                        "old_value": existing.current_price,
+                        "new_value": price,
+                    }
+                )
 
                 # Update price drop percentage
                 if existing.current_price > 0:
@@ -848,27 +901,33 @@ class PropertyService:
                 existing.current_price = price
 
             if existing.title != title:
-                changes.append({
-                    "attribute": "title",
-                    "old_value": existing.title,
-                    "new_value": title,
-                })
+                changes.append(
+                    {
+                        "attribute": "title",
+                        "old_value": existing.title,
+                        "new_value": title,
+                    }
+                )
                 existing.title = title
 
             if existing.size_m2 != square_meters and square_meters is not None:
-                changes.append({
-                    "attribute": "square_meters",
-                    "old_value": existing.size_m2,
-                    "new_value": square_meters,
-                })
+                changes.append(
+                    {
+                        "attribute": "square_meters",
+                        "old_value": existing.size_m2,
+                        "new_value": square_meters,
+                    }
+                )
                 existing.size_m2 = square_meters
 
             if existing.bedrooms != bedrooms and bedrooms is not None:
-                changes.append({
-                    "attribute": "bedrooms",
-                    "old_value": existing.bedrooms,
-                    "new_value": bedrooms,
-                })
+                changes.append(
+                    {
+                        "attribute": "bedrooms",
+                        "old_value": existing.bedrooms,
+                        "new_value": bedrooms,
+                    }
+                )
                 existing.bedrooms = bedrooms
 
             action = "updated" if changes else "seen"
@@ -920,21 +979,29 @@ class PropertyService:
             return False
 
         try:
-            req = urllib.request.Request(prop.image_url, headers={"User-Agent": "idalista-tracker/1.0"})
+            req = urllib.request.Request(
+                prop.image_url, headers={"User-Agent": "idalista-tracker/1.0"}
+            )
             with urllib.request.urlopen(req, timeout=15) as response:
                 image_bytes = response.read()
                 content_type = response.headers.get("Content-Type", "image/jpeg")
 
             if len(image_bytes) < 100:
-                logger.warning(f"Image too small for property {prop.idealista_id}: {len(image_bytes)} bytes")
+                logger.warning(
+                    f"Image too small for property {prop.idealista_id}: {len(image_bytes)} bytes"
+                )
                 return False
 
             b64 = base64.b64encode(image_bytes).decode("ascii")
             prop.image_data = f"data:{content_type};base64,{b64}"
-            logger.info(f"Downloaded image for property {prop.idealista_id}: {len(image_bytes)} bytes")
+            logger.info(
+                f"Downloaded image for property {prop.idealista_id}: {len(image_bytes)} bytes"
+            )
             return True
         except Exception as e:
-            logger.warning(f"Failed to download image for property {prop.idealista_id} from {prop.image_url}: {e}")
+            logger.warning(
+                f"Failed to download image for property {prop.idealista_id} from {prop.image_url}: {e}"
+            )
             return False
 
     def create_property(self, data: dict) -> Property:
@@ -959,7 +1026,9 @@ class PropertyService:
             bedrooms=data.get("bedrooms"),
             floor=data.get("floor"),
             has_elevator=data.get("has_elevator"),
-            property_url=data.get("property_url", f"https://www.idealista.com/inmueble/{idealista_id}/"),
+            property_url=data.get(
+                "property_url", f"https://www.idealista.com/inmueble/{idealista_id}/"
+            ),
             image_url=data.get("image_url"),
             image_data=data.get("image_data"),
             first_seen_at=datetime.utcnow(),
@@ -1138,6 +1207,20 @@ class PropertyService:
             .all()
         )
 
+    def get_pending_detail_count(self, priority_only: bool = False) -> int:
+        """Count properties pending detail crawl.
+
+        Args:
+            priority_only: If true, only count properties with fallback_to_extension = True.
+
+        Returns:
+            Total count of matching pending properties.
+        """
+        query = self.db.query(Property).filter(Property.detail_status == "pending")
+        if priority_only:
+            query = query.filter(Property.fallback_to_extension.is_(True))
+        return query.count()
+
     async def save_property_snapshot(
         self,
         property_id: int,
@@ -1170,9 +1253,7 @@ class PropertyService:
 
         # Download photos locally
         photos_input = snapshot_data.get("photos", [])
-        downloaded = await media_service.download_property_photos(
-            prop.idealista_id, photos_input
-        )
+        downloaded = await media_service.download_property_photos(prop.idealista_id, photos_input)
 
         # Remove previous snapshot/photos if any
         self.db.query(PropertyPhoto).filter(PropertyPhoto.property_id == prop.id).delete()

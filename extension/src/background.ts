@@ -86,6 +86,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
 
+    case 'GET_PENDING_DETAILS_COUNT':
+      api
+        .fetchPendingDetails(1, false)
+        .then(res => sendResponse({ success: true, count: res.pending_count }))
+        .catch(err => sendResponse({ success: false, count: 0, error: err.message }));
+      return true;
+
+    case 'START_DETAIL_CRAWL_ONLY':
+      crawler
+        .startDetailCrawlOnly()
+        .then(res => sendResponse(res))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
     case 'SAVE_CONFIG':
       handleSaveConfig(message.payload)
         .then(response => sendResponse(response))

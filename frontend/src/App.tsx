@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Filter, X } from 'lucide-react';
 import { Header, type ActiveTab } from './components/layout/Header';
 import { FilterToolbar } from './components/explorer/FilterToolbar';
 import { PropertyGrid } from './components/explorer/PropertyGrid';
@@ -14,6 +15,7 @@ import { api } from './services/api';
 import type {
   FilterState,
   IntervalAudit,
+  IntervalMetricType,
   MarketTrends,
   NormalizedZone,
   Property,
@@ -29,6 +31,13 @@ const INITIAL_FILTERS: FilterState = {
   onlyDeals: false,
   searchQuery: '',
   sortBy: 'discount_desc',
+};
+
+const METRIC_LABELS: Record<string, string> = {
+  inclusions: 'Inclusiones',
+  sales: 'Ventas Concluidas',
+  price_drops: 'Rebajas de Precio',
+  price_increases: 'Aumentos de Precio',
 };
 
 export function App() {
@@ -51,6 +60,14 @@ export function App() {
   const [intervalData, setIntervalData] = useState<IntervalAudit | null>(null);
   const [isLoadingInterval, setIsLoadingInterval] = useState<boolean>(false);
 
+  // Interval Drilldown State
+  const [intervalMetric, setIntervalMetric] = useState<IntervalMetricType | null>(null);
+  const [intervalZone, setIntervalZone] = useState<string | null>(null);
+  const [intervalProperties, setIntervalProperties] = useState<Property[]>([]);
+  const [intervalTotal, setIntervalTotal] = useState<number>(0);
+  const [intervalOffset, setIntervalOffset] = useState<number>(0);
+  const [isLoadingDrilldown, setIsLoadingDrilldown] = useState<boolean>(false);
+
   // Trends & Census State
   const [marketTrends, setMarketTrends] = useState<MarketTrends | null>(null);
   const [isLoadingTrends, setIsLoadingTrends] = useState<boolean>(false);
@@ -69,7 +86,7 @@ export function App() {
   const soldCount = zones.reduce((acc, z) => acc + z.sold, 0);
   const activeCount = zones.reduce((acc, z) => acc + z.active, 0);
 
-  // Load properties whenever filters or pagination change
+  // Load properties whenever filters or pagination change in explorer
   const fetchProperties = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -123,6 +140,33 @@ export function App() {
     }
   }, [activeTab, intervalStart, intervalEnd, intervalData, fetchIntervalAudit]);
 
+  // Load Interval Drilldown Properties
+  const fetchIntervalProperties = useCallback(async () => {
+    setIsLoadingDrilldown(true);
+    try {
+      const response = await api.getProperties({
+        movement_type: intervalMetric || undefined,
+        zone: intervalZone || undefined,
+        date_from: intervalStart,
+        date_to: intervalEnd,
+        limit: 24,
+        offset: intervalOffset,
+      });
+      setIntervalProperties(response.items);
+      setIntervalTotal(response.total);
+    } catch (err) {
+      console.error('Failed to fetch interval drilldown properties:', err);
+    } finally {
+      setIsLoadingDrilldown(false);
+    }
+  }, [intervalMetric, intervalZone, intervalStart, intervalEnd, intervalOffset]);
+
+  useEffect(() => {
+    if (activeTab === 'intervals') {
+      fetchIntervalProperties();
+    }
+  }, [activeTab, fetchIntervalProperties]);
+
   // Load Market Trends data
   useEffect(() => {
     if (activeTab === 'trends' && !marketTrends) {
@@ -139,6 +183,7 @@ export function App() {
     setIntervalPreset(presetId);
     setIntervalStart(start);
     setIntervalEnd(end);
+    setIntervalOffset(0);
     fetchIntervalAudit(start, end);
   };
 
@@ -146,7 +191,24 @@ export function App() {
     setIntervalPreset('custom');
     setIntervalStart(start);
     setIntervalEnd(end);
+    setIntervalOffset(0);
     fetchIntervalAudit(start, end);
+  };
+
+  const handleSelectIntervalMetric = (metric: IntervalMetricType) => {
+    setIntervalMetric((prev) => (prev === metric ? null : metric));
+    setIntervalOffset(0);
+  };
+
+  const handleSelectIntervalZone = (zone: string) => {
+    setIntervalZone((prev) => (prev === zone ? null : zone));
+    setIntervalOffset(0);
+  };
+
+  const handleResetIntervalFilters = () => {
+    setIntervalMetric(null);
+    setIntervalZone(null);
+    setIntervalOffset(0);
   };
 
   const handleFilterChange = (newFilter: FilterState) => {
@@ -221,14 +283,98 @@ export function App() {
             <IntervalMetricCards
               data={intervalData}
               isLoading={isLoadingInterval}
+              selectedMetric={intervalMetric}
+              onSelectMetric={handleSelectIntervalMetric}
             />
 
             {intervalData && (
               <IntervalZoneTable
                 zoneBreakdown={intervalData.zone_breakdown}
                 intervalLabel={intervalData.interval_label}
+                selectedZone={intervalZone}
+                onSelectZone={handleSelectIntervalZone}
               />
             )}
+
+            {/* Drilldown Section Reusing PropertyGrid */}
+            <div className="pt-4 space-y-4">
+              {/* Active Filter Summary Bar */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Inmuebles Auditados:</span>
+                  </div>
+
+                  {intervalMetric && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
+                      <span>{METRIC_LABELS[intervalMetric] || intervalMetric}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIntervalMetric(null);
+                          setIntervalOffset(0);
+                        }}
+                        className="hover:text-indigo-900 dark:hover:text-white p-0.5 rounded-full"
+                        aria-label="Quitar filtro de métrica"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+
+                  {intervalZone && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                      <span>Zona: {intervalZone}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIntervalZone(null);
+                          setIntervalOffset(0);
+                        }}
+                        className="hover:text-amber-950 dark:hover:text-white p-0.5 rounded-full"
+                        aria-label="Quitar filtro de zona"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+
+                  {!intervalMetric && !intervalZone && (
+                    <span className="text-xs text-slate-400 italic">
+                      Todos los inmuebles del intervalo ({intervalData?.interval_label || `${intervalStart} a ${intervalEnd}`})
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {intervalTotal} {intervalTotal === 1 ? 'inmueble' : 'inmuebles'}
+                  </span>
+                  {(intervalMetric || intervalZone) && (
+                    <button
+                      type="button"
+                      onClick={handleResetIntervalFilters}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                    >
+                      Restablecer filtros
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Reused PropertyGrid */}
+              <PropertyGrid
+                properties={intervalProperties}
+                total={intervalTotal}
+                limit={24}
+                offset={intervalOffset}
+                isLoading={isLoadingDrilldown}
+                onPageChange={setIntervalOffset}
+                onSelectProperty={setSelectedProperty}
+                onResetFilters={handleResetIntervalFilters}
+              />
+            </div>
           </div>
         )}
 

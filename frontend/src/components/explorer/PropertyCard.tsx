@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ArrowDownRight, Bed, Clock, Flame, Home, Layers, MapPin } from 'lucide-react';
 import type { Property } from '../../types/property';
 
@@ -9,7 +10,27 @@ interface PropertyCardProps {
 export function PropertyCard({ property, onSelect }: PropertyCardProps) {
   const isSold = property.status === 'sold';
   const hasDiscount = property.discount_amount > 0;
-  const thumbnail = property.photos && property.photos.length > 0 ? property.photos[0] : null;
+
+  const initialThumb = property.photos && property.photos.length > 0 ? property.photos[0] : null;
+  const proxyEndpoint = property.idealista_id ? `/api/v1/properties/${property.idealista_id}/image` : null;
+  const [currentSrc, setCurrentSrc] = useState<string | null>(initialThumb || proxyEndpoint);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    const thumb = property.photos && property.photos.length > 0 ? property.photos[0] : null;
+    const proxy = property.idealista_id ? `/api/v1/properties/${property.idealista_id}/image` : null;
+    setCurrentSrc(thumb || proxy);
+    setHasError(false);
+  }, [property.idealista_id, property.photos]);
+
+  const handleImageError = () => {
+    const proxy = property.idealista_id ? `/api/v1/properties/${property.idealista_id}/image` : null;
+    if (proxy && currentSrc !== proxy) {
+      setCurrentSrc(proxy);
+    } else {
+      setHasError(true);
+    }
+  };
 
   const formatDate = (isoString?: string | null) => {
     if (!isoString) return '';
@@ -32,16 +53,14 @@ export function PropertyCard({ property, onSelect }: PropertyCardProps) {
     >
       {/* Image Container with Badges */}
       <div className="relative aspect-[16/10] w-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-        {thumbnail ? (
+        {currentSrc && !hasError ? (
           <img
-            src={thumbnail}
+            src={currentSrc}
             alt={property.title}
             loading="lazy"
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => {
-              // Hide broken image and fallback to placeholder
-              e.currentTarget.style.display = 'none';
-            }}
+            onError={handleImageError}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 bg-slate-100 dark:bg-slate-800/60">
