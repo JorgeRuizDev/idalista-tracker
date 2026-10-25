@@ -314,7 +314,7 @@ export async function runFullPendingDetailQueue(
     isCancelled,
     jitterMinMs = 2500,
     jitterMaxMs = 5000,
-    hydrationDelayMs = 2500,
+    hydrationDelayMs = 2000,
     pollChallengeIntervalMs = 1500,
     maxChallengeWaitMs = 120000,
   } = options;

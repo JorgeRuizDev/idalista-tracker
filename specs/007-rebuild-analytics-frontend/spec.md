@@ -34,7 +34,7 @@ Como analista inmobiliario, quiero disponer de una sección especializada con se
 
 **Why this priority**: Proporciona la capacidad analítica diferencial requerida por el usuario: auditar exactamente qué ocurrió en el mercado durante un mes, un trimestre o un rango de fechas personalizado.
 
-**Independent Test**: Puede probarse de forma independiente seleccionando un intervalo de tiempo específico (por ejemplo, un mes concreto) y verificando que los 5 indicadores cuantitativos (inclusiones, ventas, rebajas %, aumentos %, días medios hasta venta) y la tabla de desglose por zonas se recalculan de forma coherente y determinista.
+**Independent Test**: Puede probarse de forma independiente seleccionando un intervalo de tiempo específico (por ejemplo, un mes concreto) y verificando que los 6 indicadores cuantitativos (inclusiones, ventas, rebajas %, aumentos %, días medios hasta venta y precio medio por m²) y la tabla de desglose por zonas se recalculan de forma coherente y determinista.
 
 **Acceptance Scenarios**:
 
@@ -44,7 +44,8 @@ Como analista inmobiliario, quiero disponer de una sección especializada con se
    - El número de rebajas de precio registradas, su porcentaje medio de reducción y el importe total en euros ahorrado.
    - El número de incrementos de precio registrados y su porcentaje medio de subida.
    - El tiempo medio en días que tardaron en venderse las propiedades cerradas durante ese intervalo.
-2. **Given** un intervalo temporal seleccionado, **When** el usuario consulta la tabla de desglose por zonas de dicho intervalo, **Then** visualiza para cada zona con actividad el número de inclusiones, ventas concluidas, días medios hasta la venta, porcentaje medio de rebaja negociado y precio medio final de transacción.
+   - El precio medio por metro cuadrado (€/m²) en las operaciones de venta cerradas durante ese intervalo.
+2. **Given** un intervalo temporal seleccionado, **When** el usuario consulta la tabla de desglose por zonas de dicho intervalo, **Then** visualiza para cada zona con actividad el número de inclusiones, ventas concluidas, días medios hasta la venta, porcentaje medio de rebaja negociado, precio medio final de transacción y precio medio por metro cuadrado (€/m²).
 
 ---
 

@@ -14,9 +14,9 @@ chrome.runtime.onInstalled.addListener(() => {
     server_url: 'http://localhost:8000',
     human_like_enabled: true,
     min_page_delay: 2000,
-    max_page_delay: 8000,
-    min_navigation_delay: 5000,
-    max_navigation_delay: 15000,
+    max_page_delay: 2000,
+    min_navigation_delay: 3000,
+    max_navigation_delay: 6000,
   };
   
   chrome.storage.local.set({ config: defaultConfig });
@@ -354,9 +354,9 @@ async function handleGetConfig() {
       server_url: 'http://localhost:8000',
       human_like_enabled: true,
       min_page_delay: 2000,
-      max_page_delay: 8000,
-      min_navigation_delay: 5000,
-      max_navigation_delay: 15000,
+      max_page_delay: 2000,
+      min_navigation_delay: 3000,
+      max_navigation_delay: 6000,
     };
     
     return { config: config || defaultConfig };
