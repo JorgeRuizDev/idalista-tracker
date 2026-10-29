@@ -11,6 +11,7 @@ const mockZones: IntervalZoneMetric[] = [
     avg_days_to_sell: 69,
     avg_discount_pct: 7.4,
     avg_sale_price: 244000,
+    avg_m2: 2409,
   },
   {
     zone: 'Gamonal - San Bruno - G9',
@@ -19,6 +20,7 @@ const mockZones: IntervalZoneMetric[] = [
     avg_days_to_sell: 55,
     avg_discount_pct: 6.2,
     avg_sale_price: 185000,
+    avg_m2: 2006,
   },
 ];
 
@@ -73,5 +75,21 @@ describe('IntervalZoneTable Interactive Row Filtering', () => {
 
     fireEvent.keyDown(gamonalRow!, { key: ' ', code: 'Space' });
     expect(onSelectZone).toHaveBeenCalledWith('Gamonal - San Bruno - G9');
+  });
+
+  it('renders and allows sorting by Precio Medio m²', () => {
+    render(
+      <IntervalZoneTable
+        zoneBreakdown={mockZones}
+        intervalLabel="Julio 2026"
+      />
+    );
+
+    expect(screen.getByText('Precio Medio m²')).toBeDefined();
+    expect(screen.getByText(/2[.,]?409 €\/m²/i)).toBeDefined();
+    expect(screen.getByText(/2[.,]?006 €\/m²/i)).toBeDefined();
+
+    // Click sort header
+    fireEvent.click(screen.getByText('Precio Medio m²'));
   });
 });

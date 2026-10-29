@@ -108,4 +108,32 @@ describe('PropertyDetailModal', () => {
       expect(screen.getByText(/Pendiente de análisis/i)).toBeInTheDocument();
     });
   });
+
+  it('opens photo in lightbox fullscreen on click and allows zooming', async () => {
+    vi.spyOn(api, 'getPropertySnapshot').mockResolvedValue(mockSnapshotResponse);
+    vi.spyOn(api, 'getPropertyDetail').mockResolvedValue(mockProperty);
+
+    render(<PropertyDetailModal property={mockProperty} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Ficha completa/i)).toBeInTheDocument();
+    });
+
+    // Click "Ampliar" button or the main photo to open lightbox
+    const expandBtn = screen.getByLabelText('Abrir foto en pantalla grande');
+    fireEvent.click(expandBtn);
+
+    // Lightbox header should show close button and zoom button
+    expect(screen.getByLabelText('Cerrar pantalla grande')).toBeInTheDocument();
+    const zoomBtn = screen.getByLabelText('Ampliar zoom');
+    expect(zoomBtn).toBeInTheDocument();
+
+    // Toggle zoom
+    fireEvent.click(zoomBtn);
+    expect(screen.getByLabelText('Reducir zoom')).toBeInTheDocument();
+
+    // Close lightbox
+    fireEvent.click(screen.getByLabelText('Cerrar pantalla grande'));
+    expect(screen.queryByLabelText('Cerrar pantalla grande')).not.toBeInTheDocument();
+  });
 });

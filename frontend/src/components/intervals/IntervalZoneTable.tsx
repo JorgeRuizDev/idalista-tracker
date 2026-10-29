@@ -9,7 +9,7 @@ export interface IntervalZoneTableProps {
   onSelectZone?: (zone: string) => void;
 }
 
-type SortField = 'zone' | 'inclusions' | 'sales' | 'avg_days_to_sell' | 'avg_discount_pct' | 'avg_sale_price';
+type SortField = 'zone' | 'inclusions' | 'sales' | 'avg_days_to_sell' | 'avg_discount_pct' | 'avg_sale_price' | 'avg_m2';
 
 export function IntervalZoneTable({
   zoneBreakdown,
@@ -122,6 +122,15 @@ export function IntervalZoneTable({
                   <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
                 </div>
               </th>
+              <th
+                onClick={() => handleSort('avg_m2')}
+                className="py-3 px-4 font-semibold text-right cursor-pointer hover:text-slate-900 dark:hover:text-white"
+              >
+                <div className="flex items-center justify-end gap-1.5">
+                  <span>Precio Medio m²</span>
+                  <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -169,6 +178,9 @@ export function IntervalZoneTable({
                   </td>
                   <td className="py-3 px-4 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
                     {row.avg_sale_price > 0 ? `${row.avg_sale_price.toLocaleString('es-ES')} €` : '—'}
+                  </td>
+                  <td className="py-3 px-4 text-right tabular-nums font-semibold text-emerald-600 dark:text-emerald-400">
+                    {row.avg_m2 > 0 ? `${row.avg_m2.toLocaleString('es-ES')} €/m²` : '—'}
                   </td>
                 </tr>
               );

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Building2,
   Calendar,
   CheckCircle2,
   ChevronLeft,
@@ -11,7 +12,10 @@ import {
   Flame,
   Home,
   MapPin,
+  Maximize2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import type { DetailStatus, PriceHistoryEntry, Property, PropertySnapshot } from '../../types/property';
 import { api } from '../../services/api';
@@ -28,6 +32,8 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
   const [snapshot, setSnapshot] = useState<PropertySnapshot | null>(null);
   const [detailStatus, setDetailStatus] = useState<DetailStatus | undefined>(property?.detail_status);
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
 
   useEffect(() => {
     setActivePhotoIndex(0);
@@ -78,68 +84,104 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
     ? `/api/v1/properties/${property.idealista_id}/image`
     : null;
 
-  const [failedPhotoIndices, setFailedPhotoIndices] = useState<Set<number>>(new Set());
-  const [modalImgFailed, setModalImgFailed] = useState<boolean>(false);
+  interface ResolvedPhoto {
+    url: string;
+    fallbackUrl?: string | null;
+  }
 
-  // Derive photos list directly from snapshot or property
-  const basePhotos: string[] =
-    snapshot?.photos && snapshot.photos.length > 0
-      ? snapshot.photos.map((p) => {
-          if (p.local_url) return p.local_url;
-          if (p.local_file_path) {
-            return p.local_file_path.startsWith('/') || p.local_file_path.startsWith('http')
-              ? p.local_file_path
-              : `/media/${p.local_file_path}`;
-          }
-          return p.original_url;
-        })
-      : property?.photos && property.photos.length > 0
-      ? property.photos
-      : proxyEndpoint
-      ? [proxyEndpoint]
-      : [];
+  const resolvedPhotos: ResolvedPhoto[] = useMemo(() => {
+    if (snapshot?.photos && snapshot.photos.length > 0) {
+      return snapshot.photos.map((p, idx) => {
+        let primaryUrl = p.local_url;
+        if (!primaryUrl && p.local_file_path) {
+          primaryUrl = p.local_file_path.startsWith('/') || p.local_file_path.startsWith('http')
+            ? p.local_file_path
+            : `/media/${p.local_file_path.replace(/^\/+/, '')}`;
+        }
+        if (!primaryUrl) {
+          primaryUrl = p.original_url || '';
+        }
 
-  const photos = basePhotos.map((url, idx) => {
-    if (failedPhotoIndices.has(idx) && proxyEndpoint && url !== proxyEndpoint) {
-      return proxyEndpoint;
+        const fallbackUrl =
+          idx === 0
+            ? proxyEndpoint || p.original_url || null
+            : p.original_url || null;
+
+        return {
+          url: primaryUrl,
+          fallbackUrl: fallbackUrl !== primaryUrl ? fallbackUrl : null,
+        };
+      });
     }
-    return url;
-  });
 
-  // Reset indices when property changes
+    if (property?.photos && property.photos.length > 0) {
+      return property.photos.map((ph, idx) => ({
+        url: ph,
+        fallbackUrl: idx === 0 && proxyEndpoint && ph !== proxyEndpoint ? proxyEndpoint : null,
+      }));
+    }
+
+    if (proxyEndpoint) {
+      return [{ url: proxyEndpoint }];
+    }
+
+    return [];
+  }, [snapshot?.photos, property?.photos, proxyEndpoint]);
+
+  const [failedPhotoIndices, setFailedPhotoIndices] = useState<Set<number>>(new Set());
+
+  // Photos array with fallbacks applied only to failed indices
+  const photos = useMemo(() => {
+    return resolvedPhotos.map((item, idx) => {
+      if (failedPhotoIndices.has(idx) && item.fallbackUrl) {
+        return item.fallbackUrl;
+      }
+      return item.url;
+    });
+  }, [resolvedPhotos, failedPhotoIndices]);
+
+  // Reset indices and lightbox when property changes
   useEffect(() => {
     setFailedPhotoIndices(new Set());
-    setModalImgFailed(false);
     setActivePhotoIndex(0);
+    setIsLightboxOpen(false);
+    setIsZoomed(false);
   }, [property?.idealista_id]);
 
-  // Keyboard navigation for closing and photo browsing
+  // Keyboard navigation for closing, photo browsing, and zoom
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (isLightboxOpen) {
+          setIsLightboxOpen(false);
+          setIsZoomed(false);
+        } else {
+          onClose();
+        }
       } else if (e.key === 'ArrowLeft') {
+        setIsZoomed(false);
         setActivePhotoIndex((prev) => (photos.length > 0 ? (prev === 0 ? photos.length - 1 : prev - 1) : 0));
       } else if (e.key === 'ArrowRight') {
+        setIsZoomed(false);
         setActivePhotoIndex((prev) => (photos.length > 0 ? (prev === photos.length - 1 ? 0 : prev + 1) : 0));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, photos.length]);
+  }, [onClose, photos.length, isLightboxOpen]);
 
   if (!property) return null;
 
   const currentPhoto = photos[activePhotoIndex] || null;
   const isSold = property.status === 'sold';
   const hasDiscount = property.discount_amount > 0;
+  const isCurrentPhotoFailed =
+    failedPhotoIndices.has(activePhotoIndex) &&
+    (!resolvedPhotos[activePhotoIndex]?.fallbackUrl ||
+      currentPhoto === resolvedPhotos[activePhotoIndex]?.fallbackUrl);
 
   const handleModalPhotoError = () => {
-    if (proxyEndpoint && currentPhoto !== proxyEndpoint) {
-      setFailedPhotoIndices((prev) => new Set(prev).add(activePhotoIndex));
-    } else {
-      setModalImgFailed(true);
-    }
+    setFailedPhotoIndices((prev) => new Set(prev).add(activePhotoIndex));
   };
 
   const formatDate = (isoString?: string | null) => {
@@ -238,15 +280,30 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Photo Carousel */}
             <div className="space-y-2">
-              <div className="relative aspect-[4/3] rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-800">
-                {currentPhoto && !modalImgFailed ? (
-                  <img
-                    src={currentPhoto}
-                    alt={property.title}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                    onError={handleModalPhotoError}
-                  />
+              <div className="relative aspect-[4/3] rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-800 group/photo">
+                {currentPhoto && !isCurrentPhotoFailed ? (
+                  <>
+                    <img
+                      src={currentPhoto}
+                      alt={property.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover cursor-zoom-in group-hover/photo:scale-105 transition-transform duration-300"
+                      onError={handleModalPhotoError}
+                      onClick={() => setIsLightboxOpen(true)}
+                    />
+
+                    {/* Floating Zoom / Fullscreen Button on Top-Right */}
+                    <button
+                      type="button"
+                      onClick={() => setIsLightboxOpen(true)}
+                      className="absolute top-2.5 right-2.5 p-2 rounded-xl bg-slate-900/70 hover:bg-slate-900 text-white backdrop-blur-sm shadow-md transition-all hover:scale-105 flex items-center gap-1.5 text-xs font-semibold"
+                      title="Ver en pantalla grande / Zoom"
+                      aria-label="Abrir foto en pantalla grande"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">Ampliar</span>
+                    </button>
+                  </>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
                     <Home className="w-12 h-12 mb-2 opacity-40" />
@@ -292,7 +349,7 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                   {photos.map((ph, idx) => (
                     <button
-                      key={ph + idx}
+                      key={`${ph}-${idx}`}
                       type="button"
                       onClick={() => setActivePhotoIndex(idx)}
                       className={`relative w-14 h-14 rounded-lg overflow-hidden shrink-0 border-2 transition-all ${
@@ -306,6 +363,9 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                         alt=""
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
+                        onError={() => {
+                          setFailedPhotoIndices((prev) => new Set(prev).add(idx));
+                        }}
                       />
                     </button>
                   ))}
@@ -327,6 +387,16 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                     {property.address}
                   </p>
+                )}
+                {snapshot?.features?.agency && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      <Building2 className="w-3.5 h-3.5" />
+                      {snapshot.features.advertiser_type === 'private'
+                        ? 'Anunciante: Particular'
+                        : `Inmobiliaria: ${snapshot.features.agency}`}
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -535,6 +605,146 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
           </div>
         </div>
       </div>
+
+      {/* Lightbox / Fullscreen Image Viewer Modal */}
+      {isLightboxOpen && currentPhoto && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex flex-col justify-between overflow-hidden select-none animate-in fade-in duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsLightboxOpen(false);
+              setIsZoomed(false);
+            }
+          }}
+        >
+          {/* Lightbox Header Bar */}
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-black/40 backdrop-blur-sm border-b border-white/10 shrink-0 z-10 text-white">
+            <div className="flex items-center gap-3 truncate pr-4">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white/15 text-white tabular-nums border border-white/10">
+                {activePhotoIndex + 1} / {photos.length}
+              </span>
+              <span className="text-sm font-medium truncate text-white/90">
+                {property.title}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Zoom toggle button */}
+              <button
+                type="button"
+                onClick={() => setIsZoomed((z) => !z)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                  isZoomed
+                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-md ring-2 ring-indigo-500/30'
+                    : 'bg-white/10 hover:bg-white/20 text-white border-white/15'
+                }`}
+                title={isZoomed ? 'Reducir zoom (ajustar a pantalla)' : 'Ampliar zoom'}
+                aria-label={isZoomed ? 'Reducir zoom' : 'Ampliar zoom'}
+              >
+                {isZoomed ? <ZoomOut className="w-4 h-4" /> : <ZoomIn className="w-4 h-4" />}
+                <span className="hidden sm:inline">{isZoomed ? 'Ajustar' : 'Zoom 2x'}</span>
+              </button>
+
+              {/* Close Lightbox */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLightboxOpen(false);
+                  setIsZoomed(false);
+                }}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/15 transition-colors"
+                title="Cerrar pantalla grande (Esc)"
+                aria-label="Cerrar pantalla grande"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lightbox Main Image Display */}
+          <div
+            className={`relative flex-1 flex items-center justify-center p-2 sm:p-6 overflow-hidden ${
+              isZoomed ? 'overflow-auto cursor-zoom-out' : 'cursor-zoom-in'
+            }`}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                if (isZoomed) setIsZoomed(false);
+                else {
+                  setIsLightboxOpen(false);
+                  setIsZoomed(false);
+                }
+              }
+            }}
+          >
+            <img
+              src={currentPhoto}
+              alt={property.title}
+              referrerPolicy="no-referrer"
+              onClick={() => setIsZoomed((z) => !z)}
+              className={`transition-all duration-200 select-none ${
+                isZoomed
+                  ? 'max-w-none scale-150 sm:scale-175 cursor-zoom-out shadow-2xl rounded-lg'
+                  : 'max-h-[82vh] max-w-[92vw] w-auto h-auto object-contain cursor-zoom-in rounded-xl shadow-2xl'
+              }`}
+            />
+
+            {/* Left/Right Navigation Buttons */}
+            {photos.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsZoomed(false);
+                    setActivePhotoIndex((prev) => (prev === 0 ? photos.length - 1 : prev - 1));
+                  }}
+                  className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 p-3 sm:p-3.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-2xl transition-all hover:scale-110 border border-white/10 backdrop-blur-sm"
+                  aria-label="Foto anterior"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsZoomed(false);
+                    setActivePhotoIndex((prev) => (prev === photos.length - 1 ? 0 : prev + 1));
+                  }}
+                  className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 p-3 sm:p-3.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-2xl transition-all hover:scale-110 border border-white/10 backdrop-blur-sm"
+                  aria-label="Foto siguiente"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Lightbox Bottom Thumbnail Filmstrip */}
+          {photos.length > 1 && (
+            <div className="p-3 bg-black/60 backdrop-blur-md border-t border-white/10 flex items-center justify-center gap-2 overflow-x-auto shrink-0 max-w-full">
+              {photos.map((ph, idx) => (
+                <button
+                  key={`lightbox-${ph}-${idx}`}
+                  type="button"
+                  onClick={() => {
+                    setIsZoomed(false);
+                    setActivePhotoIndex(idx);
+                  }}
+                  className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
+                    activePhotoIndex === idx
+                      ? 'border-indigo-500 scale-105 ring-2 ring-indigo-500/50 opacity-100'
+                      : 'border-transparent opacity-50 hover:opacity-100'
+                  }`}
+                >
+                  <img src={ph} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

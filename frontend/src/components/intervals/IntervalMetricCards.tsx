@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   Coins,
+  Ruler,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -26,8 +27,8 @@ export function IntervalMetricCards({
 }: IntervalMetricCardsProps) {
   if (isLoading || !data) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {[...Array(5)].map((_, i) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {[...Array(6)].map((_, i) => (
           <div
             key={i}
             className="h-32 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 animate-pulse space-y-3"
@@ -58,7 +59,7 @@ export function IntervalMetricCards({
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {/* 1. Inclusiones */}
       <div
         role="button"
@@ -207,6 +208,33 @@ export function IntervalMetricCards({
           </div>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
             Desde publicación a cierre
+          </p>
+        </div>
+      </div>
+
+      {/* 6. Precio Medio m² (Informativo de referencia de valor unitario) */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            Precio Medio m²
+          </span>
+          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <Ruler className="w-4 h-4" />
+          </div>
+        </div>
+        <div className="mt-2">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tabular-nums">
+              {data.avg_m2 > 0 ? `${data.avg_m2.toLocaleString('es-ES')} €` : '—'}
+            </span>
+            {data.avg_m2 > 0 && (
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                /m²
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+            Media en transacciones cerradas
           </p>
         </div>
       </div>

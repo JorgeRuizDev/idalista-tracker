@@ -15,6 +15,7 @@ const mockAudit: IntervalAudit = {
   increases_count: 13,
   avg_inc_pct: 5.7,
   avg_days_to_sell: 67,
+  avg_m2: 1845,
   zone_breakdown: [],
 };
 
@@ -76,5 +77,12 @@ describe('IntervalMetricCards Interactive Filtering', () => {
 
     fireEvent.keyDown(dropsCard, { key: ' ', code: 'Space' });
     expect(onSelectMetric).toHaveBeenCalledWith('price_drops');
+  });
+
+  it('renders the Precio Medio m² benchmark card correctly', () => {
+    render(<IntervalMetricCards data={mockAudit} />);
+    expect(screen.getByText('Precio Medio m²')).toBeDefined();
+    expect(screen.getByText(/1[.,]?845 €/i)).toBeDefined();
+    expect(screen.getByText('/m²')).toBeDefined();
   });
 });

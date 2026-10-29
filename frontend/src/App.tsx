@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Filter, X } from 'lucide-react';
 import { Header, type ActiveTab } from './components/layout/Header';
 import { FilterToolbar } from './components/explorer/FilterToolbar';
@@ -12,6 +12,7 @@ import { DropsVsSalesChart } from './components/trends/DropsVsSalesChart';
 import { CensusTable } from './components/trends/CensusTable';
 import { ZoneDiagnosticModal } from './components/modal/ZoneDiagnosticModal';
 import { api } from './services/api';
+import { buildUrl, INITIAL_FILTERS, parseUrlState } from './utils/urlParams';
 import type {
   FilterState,
   IntervalAudit,
@@ -21,18 +22,6 @@ import type {
   Property,
 } from './types/property';
 
-const INITIAL_FILTERS: FilterState = {
-  soldStatus: 'all',
-  zone: 'all',
-  priceMin: undefined,
-  priceMax: undefined,
-  dateStart: undefined,
-  dateEnd: undefined,
-  onlyDeals: false,
-  searchQuery: '',
-  sortBy: 'discount_desc',
-};
-
 const METRIC_LABELS: Record<string, string> = {
   inclusions: 'Inclusiones',
   sales: 'Ventas Concluidas',
@@ -41,37 +30,184 @@ const METRIC_LABELS: Record<string, string> = {
 };
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('explorer');
+  const [initialUrlParsed] = useState(() => parseUrlState());
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialUrlParsed.tab);
 
   // Explorer State
-  const [filter, setFilter] = useState<FilterState>(INITIAL_FILTERS);
+  const [filter, setFilter] = useState<FilterState>(initialUrlParsed.filter);
   const [zones, setZones] = useState<NormalizedZone[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [totalResults, setTotalResults] = useState<number>(0);
-  const [offset, setOffset] = useState<number>(0);
+  const [offset, setOffset] = useState<number>(initialUrlParsed.offset);
   const [limit] = useState<number>(24);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [isLoadingPropertyModal, setIsLoadingPropertyModal] = useState<boolean>(false);
 
   // Interval Audit State
-  const [intervalPreset, setIntervalPreset] = useState<string>('2026-07');
-  const [intervalStart, setIntervalStart] = useState<string>('2026-07-01');
-  const [intervalEnd, setIntervalEnd] = useState<string>('2026-07-31');
+  const [intervalPreset, setIntervalPreset] = useState<string>(
+    initialUrlParsed.intervalState.preset || '2026-07'
+  );
+  const [intervalStart, setIntervalStart] = useState<string>(
+    initialUrlParsed.intervalState.startDate || '2026-07-01'
+  );
+  const [intervalEnd, setIntervalEnd] = useState<string>(
+    initialUrlParsed.intervalState.endDate || '2026-07-31'
+  );
   const [intervalData, setIntervalData] = useState<IntervalAudit | null>(null);
   const [isLoadingInterval, setIsLoadingInterval] = useState<boolean>(false);
 
   // Interval Drilldown State
-  const [intervalMetric, setIntervalMetric] = useState<IntervalMetricType | null>(null);
-  const [intervalZone, setIntervalZone] = useState<string | null>(null);
+  const [intervalMetric, setIntervalMetric] = useState<IntervalMetricType | null>(
+    initialUrlParsed.intervalState.metric ?? null
+  );
+  const [intervalZone, setIntervalZone] = useState<string | null>(
+    initialUrlParsed.intervalState.zone ?? null
+  );
   const [intervalProperties, setIntervalProperties] = useState<Property[]>([]);
   const [intervalTotal, setIntervalTotal] = useState<number>(0);
-  const [intervalOffset, setIntervalOffset] = useState<number>(0);
+  const [intervalOffset, setIntervalOffset] = useState<number>(
+    initialUrlParsed.intervalState.offset ?? 0
+  );
   const [isLoadingDrilldown, setIsLoadingDrilldown] = useState<boolean>(false);
 
   // Trends & Census State
   const [marketTrends, setMarketTrends] = useState<MarketTrends | null>(null);
   const [isLoadingTrends, setIsLoadingTrends] = useState<boolean>(false);
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState<boolean>(false);
+
+  // On initial mount: if URL contains property param, fetch and display modal
+  useEffect(() => {
+    const propId = initialUrlParsed.propertyId;
+    if (!propId) return;
+
+    setIsLoadingPropertyModal(true);
+    api
+      .getPropertyDetail(propId)
+      .then((prop) => {
+        setSelectedProperty(prop);
+      })
+      .catch((err) => {
+        console.warn('Property specified in URL could not be loaded:', propId, err);
+        const cleanUrl = buildUrl({
+          tab: initialUrlParsed.tab,
+          filter: initialUrlParsed.filter,
+          offset: initialUrlParsed.offset,
+          limit,
+          propertyId: null,
+          intervalPreset,
+          intervalStart,
+          intervalEnd,
+          intervalMetric,
+          intervalZone,
+          intervalOffset,
+        });
+        window.history.replaceState(null, '', cleanUrl);
+      })
+      .finally(() => {
+        setIsLoadingPropertyModal(false);
+      });
+  }, []);
+
+  // Listen to browser Back / Forward (popstate) navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseUrlState();
+      setActiveTab(parsed.tab);
+      setFilter(parsed.filter);
+      setOffset(parsed.offset);
+
+      if (parsed.intervalState.preset) setIntervalPreset(parsed.intervalState.preset);
+      if (parsed.intervalState.startDate) setIntervalStart(parsed.intervalState.startDate);
+      if (parsed.intervalState.endDate) setIntervalEnd(parsed.intervalState.endDate);
+      setIntervalMetric(parsed.intervalState.metric ?? null);
+      setIntervalZone(parsed.intervalState.zone ?? null);
+      setIntervalOffset(parsed.intervalState.offset ?? 0);
+
+      if (parsed.propertyId) {
+        if (
+          !selectedProperty ||
+          (selectedProperty.idealista_id !== parsed.propertyId &&
+            String(selectedProperty.id) !== parsed.propertyId)
+        ) {
+          const found =
+            properties.find(
+              (p) =>
+                p.idealista_id === parsed.propertyId ||
+                String(p.id) === parsed.propertyId
+            ) ||
+            intervalProperties.find(
+              (p) =>
+                p.idealista_id === parsed.propertyId ||
+                String(p.id) === parsed.propertyId
+            );
+
+          if (found) {
+            setSelectedProperty(found);
+          } else {
+            api
+              .getPropertyDetail(parsed.propertyId)
+              .then((prop) => setSelectedProperty(prop))
+              .catch((err) =>
+                console.warn('Could not restore property on popstate:', err)
+              );
+          }
+        }
+      } else {
+        setSelectedProperty(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [properties, intervalProperties, selectedProperty]);
+
+  // Synchronize state changes to URL query parameters
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const nextUrl = buildUrl({
+        tab: activeTab,
+        filter,
+        offset,
+        limit,
+        propertyId: selectedProperty
+          ? selectedProperty.idealista_id || String(selectedProperty.id)
+          : null,
+        intervalPreset,
+        intervalStart,
+        intervalEnd,
+        intervalMetric,
+        intervalZone,
+        intervalOffset,
+      });
+
+      const currentUrl = window.location.pathname + window.location.search;
+      if (nextUrl !== currentUrl) {
+        window.history.replaceState(null, '', nextUrl);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeTab,
+    filter,
+    offset,
+    limit,
+    selectedProperty,
+    intervalPreset,
+    intervalStart,
+    intervalEnd,
+    intervalMetric,
+    intervalZone,
+    intervalOffset,
+  ]);
 
   // Load Zones Census on mount
   useEffect(() => {
@@ -85,6 +221,15 @@ export function App() {
   const grandTotal = zones.reduce((acc, z) => acc + z.total, 0) || totalResults;
   const soldCount = zones.reduce((acc, z) => acc + z.sold, 0);
   const activeCount = zones.reduce((acc, z) => acc + z.active, 0);
+  const [completedCount, setCompletedCount] = useState<number | undefined>(undefined);
+
+  // Fetch count of completed detailed properties for filter badge
+  useEffect(() => {
+    api
+      .getProperties({ detail_status: 'completed', limit: 1 })
+      .then((res) => setCompletedCount(res.total))
+      .catch(() => {});
+  }, []);
 
   // Load properties whenever filters or pagination change in explorer
   const fetchProperties = useCallback(async () => {
@@ -102,6 +247,7 @@ export function App() {
         date_from: filter.dateStart,
         date_to: filter.dateEnd,
         has_price_drop: filter.onlyDeals ? true : undefined,
+        detail_status: filter.onlyCompletedDetails ? 'completed' : undefined,
         search: filter.searchQuery.trim() || undefined,
         sort_by: filter.sortBy,
         limit,
@@ -179,6 +325,43 @@ export function App() {
     }
   }, [activeTab, marketTrends]);
 
+  const handleSelectProperty = (prop: Property) => {
+    setSelectedProperty(prop);
+    const propId = prop.idealista_id || String(prop.id);
+    const nextUrl = buildUrl({
+      tab: activeTab,
+      filter,
+      offset,
+      limit,
+      propertyId: propId,
+      intervalPreset,
+      intervalStart,
+      intervalEnd,
+      intervalMetric,
+      intervalZone,
+      intervalOffset,
+    });
+    window.history.pushState(null, '', nextUrl);
+  };
+
+  const handleClosePropertyDetail = () => {
+    setSelectedProperty(null);
+    const nextUrl = buildUrl({
+      tab: activeTab,
+      filter,
+      offset,
+      limit,
+      propertyId: null,
+      intervalPreset,
+      intervalStart,
+      intervalEnd,
+      intervalMetric,
+      intervalZone,
+      intervalOffset,
+    });
+    window.history.replaceState(null, '', nextUrl);
+  };
+
   const handleSelectPreset = (presetId: string, start: string, end: string) => {
     setIntervalPreset(presetId);
     setIntervalStart(start);
@@ -242,6 +425,7 @@ export function App() {
               totalResults={totalResults}
               soldCount={soldCount}
               activeCount={activeCount}
+              completedCount={completedCount}
             />
 
             <PropertyGrid
@@ -251,7 +435,7 @@ export function App() {
               offset={offset}
               isLoading={isLoading}
               onPageChange={setOffset}
-              onSelectProperty={setSelectedProperty}
+              onSelectProperty={handleSelectProperty}
               onResetFilters={handleResetFilters}
             />
           </div>
@@ -371,7 +555,7 @@ export function App() {
                 offset={intervalOffset}
                 isLoading={isLoadingDrilldown}
                 onPageChange={setIntervalOffset}
-                onSelectProperty={setSelectedProperty}
+                onSelectProperty={handleSelectProperty}
                 onResetFilters={handleResetIntervalFilters}
               />
             </div>
@@ -413,10 +597,26 @@ export function App() {
         )}
       </main>
 
+      {/* Property Detail Loading Indicator (when accessed directly from URL) */}
+      {isLoadingPropertyModal && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Cargando detalle del inmueble...
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Property Detail Modal */}
       <PropertyDetailModal
         property={selectedProperty}
-        onClose={() => setSelectedProperty(null)}
+        onClose={handleClosePropertyDetail}
       />
 
       {/* Zone Diagnostic Modal */}

@@ -16,6 +16,7 @@ const mockAudit: IntervalAudit = {
   increases_count: 13,
   avg_inc_pct: 5.7,
   avg_days_to_sell: 67,
+  avg_m2: 1845,
   zone_breakdown: [
     {
       zone: 'Los Vadillos - Reyes Católicos',
@@ -24,6 +25,7 @@ const mockAudit: IntervalAudit = {
       avg_days_to_sell: 69,
       avg_discount_pct: 7.4,
       avg_sale_price: 244000,
+      avg_m2: 2409,
     },
   ],
 };
@@ -50,7 +52,7 @@ describe('IntervalSelector', () => {
 });
 
 describe('IntervalMetricCards', () => {
-  it('renders all 5 KPI cards with aggregated values', () => {
+  it('renders all 6 KPI cards with aggregated values', () => {
     render(<IntervalMetricCards data={mockAudit} />);
 
     expect(screen.getByText('228')).toBeDefined();
@@ -58,5 +60,6 @@ describe('IntervalMetricCards', () => {
     expect(screen.getByText('97')).toBeDefined();
     expect(screen.getByText(/5\.6%/i)).toBeDefined();
     expect(screen.getByText('67')).toBeDefined();
+    expect(screen.getByText(/1[.,]?845 €/i)).toBeDefined();
   });
 });

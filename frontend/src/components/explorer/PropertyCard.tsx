@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowDownRight, Bed, Clock, Flame, Home, Layers, MapPin } from 'lucide-react';
+import { ArrowDownRight, Bed, Camera, Clock, Flame, Home, Layers, MapPin } from 'lucide-react';
 import type { Property } from '../../types/property';
 
 interface PropertyCardProps {
@@ -99,6 +99,14 @@ export function PropertyCard({ property, onSelect }: PropertyCardProps) {
                 ? `Tardó ${property.days_on_market} días`
                 : `${property.days_on_market} días en mercado`}
             </span>
+          </div>
+        )}
+
+        {/* Bottom overlay: Completed Fiche / Photos count */}
+        {property.detail_status === 'completed' && (
+          <div className="absolute bottom-2 right-2 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 backdrop-blur-sm flex items-center gap-1">
+            <Camera className="w-3 h-3 text-emerald-400" />
+            <span>{property.photos && property.photos.length > 1 ? `${property.photos.length} fotos` : 'Ficha completa'}</span>
           </div>
         )}
       </div>

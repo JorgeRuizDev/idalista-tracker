@@ -20,6 +20,7 @@ export interface PropertyQueryParams {
   date_from?: string;
   date_to?: string;
   has_price_drop?: boolean;
+  detail_status?: string;
   search?: string;
   sort_by?: string;
   limit?: number;
@@ -140,6 +141,7 @@ export interface IntervalZoneMetric {
   avg_days_to_sell: number;
   avg_discount_pct: number;
   avg_sale_price: number;
+  avg_m2: number;
 }
 
 export interface IntervalAudit {
@@ -154,6 +156,7 @@ export interface IntervalAudit {
   increases_count: number;
   avg_inc_pct: number;
   avg_days_to_sell: number;
+  avg_m2: number;
   zone_breakdown: IntervalZoneMetric[];
 }
 
@@ -180,6 +183,7 @@ export interface FilterState {
   dateStart?: string; // YYYY-MM-DD
   dateEnd?: string;   // YYYY-MM-DD
   onlyDeals: boolean; // only properties with price reduction
+  onlyCompletedDetails: boolean; // only properties with completed crawl (photos, description, features)
   searchQuery: string;
   sortBy: PropertySortBy;
 }

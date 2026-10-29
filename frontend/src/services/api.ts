@@ -70,6 +70,9 @@ export const api = {
     if (params.has_price_drop) {
       query.append('has_price_drop', 'true');
     }
+    if (params.detail_status) {
+      query.append('detail_status', params.detail_status);
+    }
     if (params.search) {
       query.append('search', params.search);
     }
@@ -91,7 +94,26 @@ export const api = {
    * Fetch full property detail with price history.
    */
   async getPropertyDetail(idealistaId: string): Promise<Property> {
-    return request<Property>(`/properties/${encodeURIComponent(idealistaId)}`);
+    const data = await request<any>(`/properties/${encodeURIComponent(idealistaId)}`);
+    const orig = data.original_price ?? 0;
+    const curr = data.current_price ?? 0;
+    const hasDiscount = orig > curr && orig > 0;
+    const discAmount = hasDiscount ? orig - curr : (data.discount_amount ?? 0);
+    const discPct = hasDiscount
+      ? Math.round(((orig - curr) / orig) * 1000) / 10
+      : (data.discount_pct ?? data.price_drop_percentage ?? 0);
+    const pricePerM2 = data.price_per_m2 ?? (data.size_m2 && curr ? Math.round(curr / data.size_m2) : null);
+
+    return {
+      ...data,
+      zone: data.zone || data.location || 'Burgos Centro / Otras Zonas',
+      address: data.address || data.location || data.title,
+      discount_amount: discAmount,
+      discount_pct: discPct,
+      price_per_m2: pricePerM2,
+      photos: data.photos && data.photos.length > 0 ? data.photos : (data.image_url ? [data.image_url] : []),
+      price_history_count: data.price_history_count ?? data.price_history?.length ?? 0,
+    };
   },
 
   /**
