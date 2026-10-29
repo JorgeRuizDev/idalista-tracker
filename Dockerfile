@@ -11,7 +11,8 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    UV_SYSTEM_PYTHON=1
+    UV_SYSTEM_PYTHON=1 \
+    PYTHONPATH=/app
 
 # Install system utilities and SSL certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,18 +28,14 @@ WORKDIR /app
 # Copy dependency definition files
 COPY pyproject.toml uv.lock ./
 
-# Install python dependencies using UV
+# Install python dependencies (skip local wheel packaging)
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Install Chromium and system dependencies for Playwright crawler
-RUN uv run playwright install --with-deps chromium
+RUN uv run --no-project playwright install --with-deps chromium
 
-# Copy backend source code and metadata
+# Copy backend source code
 COPY src/ ./src/
-COPY README.md pyproject.toml ./
-
-# Install local package
-RUN uv sync --frozen --no-dev
 
 # Copy compiled frontend from Stage 1 into frontend/dist
 COPY --from=frontend-builder /build/dist ./frontend/dist
@@ -51,4 +48,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
 # Launch application with Uvicorn
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-project", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

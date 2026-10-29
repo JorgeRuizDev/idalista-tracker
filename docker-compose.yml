@@ -17,9 +17,9 @@ services:
       - GMAIL_EMAIL=${GMAIL_EMAIL:-}
       - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
     volumes:
-      - ./idealista_properties.db:/app/idealista_properties.db
-      - ./data/media:/app/data/media
-      - ./.env:/app/.env:ro
+      - /home/jorge/_STORAGE/idalista-tracker/idealista_properties.db:/app/idealista_properties.db
+      - /home/jorge/_STORAGE/idalista-tracker/data/media:/app/data/media
+      - /home/jorge/_STORAGE/idalista-tracker/.env:/app/.env:ro
     labels:
       - "com.docker.compose.project=idalista-tracker"
       - "com.docker.compose.service=idalista-tracker"
