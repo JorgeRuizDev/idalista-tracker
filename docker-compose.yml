@@ -1,0 +1,25 @@
+services:
+  idalista-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: idalista-tracker:latest
+    container_name: idalista-tracker
+    restart: unless-stopped
+    ports:
+      - "8050:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATABASE_URL=sqlite:////app/idealista_properties.db
+      - MEDIA_ROOT=data/media
+      - LOG_LEVEL=INFO
+      - GMAIL_EMAIL=${GMAIL_EMAIL:-}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
+    volumes:
+      - ./idealista_properties.db:/app/idealista_properties.db
+      - ./data/media:/app/data/media
+      - ./.env:/app/.env:ro
+    labels:
+      - "com.docker.compose.project=idalista-tracker"
+      - "com.docker.compose.service=idalista-tracker"

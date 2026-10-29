@@ -1,10 +1,13 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.config import settings
 from src.crawler.scheduler import init_scheduler, start_scheduler, stop_scheduler
@@ -66,9 +69,6 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
         }
 
-    from pathlib import Path
-    from fastapi.staticfiles import StaticFiles
-
     # Ensure media directories exist and mount static files
     media_path = Path(settings.MEDIA_ROOT)
     media_path.mkdir(parents=True, exist_ok=True)
@@ -93,6 +93,23 @@ def create_app() -> FastAPI:
     app.include_router(stats.router, prefix="/api")
     app.include_router(zones.router, prefix="/api")
     app.include_router(analytics.router, prefix="/api")
+
+    # Mount frontend static distribution if built
+    frontend_dist = Path("frontend/dist")
+    if frontend_dist.is_dir():
+        assets_dir = frontend_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_frontend_spa(full_path: str = ""):
+            # Prevent hijacking API, media, docs, or OpenAPI endpoints
+            if full_path.startswith(("api", "media", "docs", "redoc", "openapi.json")):
+                raise HTTPException(status_code=404, detail="Not Found")
+            requested_file = frontend_dist / full_path
+            if full_path and requested_file.is_file():
+                return FileResponse(requested_file)
+            return FileResponse(frontend_dist / "index.html")
 
     return app
 
