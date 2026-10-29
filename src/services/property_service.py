@@ -349,7 +349,8 @@ class PropertyService:
                 .all()
             )
             for ph in photos:
-                photos_by_prop[ph.property_id].append(ph.original_url)
+                local_path = ph.local_file_path.lstrip("/")
+                photos_by_prop[ph.property_id].append(f"/media/{local_path}")
 
             hist_counts = dict(
                 self.db.query(PriceHistory.property_id, func.count(PriceHistory.id))
@@ -361,12 +362,8 @@ class PropertyService:
             for p in paginated:
                 p_photos = photos_by_prop.get(p.id, [])
                 if not p_photos:
-                    if p.image_data:
+                    if p.image_data or p.image_url:
                         p_photos = [f"/api/v1/properties/{p.idealista_id}/image"]
-                        if p.image_url:
-                            p_photos.append(p.image_url)
-                    elif p.image_url:
-                        p_photos = [p.image_url]
                 setattr(p, "photos_list", p_photos)
                 setattr(p, "price_history_count", hist_counts.get(p.id, 0))
 
@@ -979,9 +976,16 @@ class PropertyService:
             return False
 
         try:
-            req = urllib.request.Request(
-                prop.image_url, headers={"User-Agent": "idalista-tracker/1.0"}
-            )
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://www.idealista.com/",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            }
+            req = urllib.request.Request(prop.image_url, headers=headers)
             with urllib.request.urlopen(req, timeout=15) as response:
                 image_bytes = response.read()
                 content_type = response.headers.get("Content-Type", "image/jpeg")
@@ -1085,6 +1089,11 @@ class PropertyService:
         prop.detail_status = "discarded"
         prop.discard_reason = reason
         prop.detail_updated_at = datetime.utcnow()
+        if reason == "delisted":
+            prop.status = "sold"
+            prop.is_active = False
+            if not prop.sold_at:
+                prop.sold_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(prop)
         return prop
@@ -1290,6 +1299,19 @@ class PropertyService:
                 created_at=datetime.utcnow(),
             )
             self.db.add(photo)
+
+        # Ensure primary image blob is persisted locally in property.image_data
+        if downloaded:
+            try:
+                first_local = downloaded[0]["local_file_path"].lstrip("/")
+                first_disk_path = media_service.media_root / first_local
+                if first_disk_path.exists() and first_disk_path.stat().st_size > 0:
+                    raw_bytes = first_disk_path.read_bytes()
+                    mime = downloaded[0].get("content_type", "image/jpeg")
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    prop.image_data = f"data:{mime};base64,{b64}"
+            except Exception as e:
+                logger.warning(f"Could not persist primary image blob for {prop.idealista_id}: {e}")
 
         prop.detail_status = "completed"
         prop.detail_updated_at = datetime.utcnow()

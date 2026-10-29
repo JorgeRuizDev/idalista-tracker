@@ -109,3 +109,67 @@ def test_parse_delisted_detection():
     result = parser.parse_html(DELISTED_HTML)
 
     assert result["is_delisted"] is True
+
+
+def test_parse_full_screen_gallery_pics():
+    """Test extracting 22+ high-res pictures from inline fullScreenGalleryPics script."""
+    pics_json = ",\n".join(
+        f'{{ url: "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/{i}.jpg", tag: "Foto {i}" }}'
+        for i in range(1, 25)
+    )
+    html = f"""
+    <html>
+    <body>
+        <div class="main-info__title-main">Piso en venta</div>
+        <script>
+            var fullScreenGalleryPics = [
+                {pics_json}
+            ];
+        </script>
+        <img src="https://st3.idealista.com/static/common/img/icons/logo.svg" />
+        <img src="https://st3.idealista.com/static/common/img/flags/es.svg" />
+    </body>
+    </html>
+    """
+    parser = DetailParser()
+    result = parser.parse_html(html)
+    photos = result["photos"]
+    assert len(photos) == 24
+    assert photos[0]["original_url"] == "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/1.jpg"
+    assert photos[0]["caption"] == "Foto 1"
+    assert photos[23]["original_url"] == "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/24.jpg"
+    assert photos[23]["caption"] == "Foto 24"
+    # Ensure no SVGs or flags were extracted
+    assert all(".svg" not in p["original_url"] for p in photos)
+
+
+def test_parse_ad_multimedias_info():
+    """Test extracting gallery pictures from inline adMultimediasInfo script."""
+    html = """
+    <html>
+    <body>
+        <div class="main-info__title-main">Piso en venta</div>
+        <script>
+            var adMultimediasInfo = {
+                multimedias: [
+                    { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10001.webp", tag: "Fachada" },
+                    { url: "https://img4.idealista.com/blur/WEB_DETAIL-XL/0/id.pro.es.image.master/1/2/3/10001.jpg", tag: "Fachada" },
+                    { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10002.jpg", tag: "Salón" },
+                    { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10003.jpg", tag: "Cocina" }
+                ]
+            };
+        </script>
+    </body>
+    </html>
+    """
+    parser = DetailParser()
+    result = parser.parse_html(html)
+    photos = result["photos"]
+    # 10001 was present as .webp and .jpg; deduplication must keep only the .jpg version
+    assert len(photos) == 3
+    assert photos[0]["original_url"] == "https://img4.idealista.com/blur/WEB_DETAIL-XL/0/id.pro.es.image.master/1/2/3/10001.jpg"
+    assert photos[0]["caption"] == "Fachada"
+    assert photos[1]["original_url"] == "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10002.jpg"
+    assert photos[2]["original_url"] == "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10003.jpg"
+
+

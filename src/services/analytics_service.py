@@ -73,6 +73,7 @@ class AnalyticsService:
                 Property.location,
                 Property.original_price,
                 Property.current_price,
+                Property.size_m2,
                 Property.first_seen_at,
                 Property.sold_at,
                 Property.last_seen_at,
@@ -86,19 +87,23 @@ class AnalyticsService:
         )
         sales_count = len(sold_props)
 
-        # Days to sell for sales in interval
+        # Days to sell and m2 prices for sales in interval
         days_to_sell_list: List[int] = []
+        m2_prices: List[float] = []
         for sp in sold_props:
             if sp.first_seen_at and sp.sold_at:
                 d = (sp.sold_at - sp.first_seen_at).days
                 if d >= 0:
                     days_to_sell_list.append(d)
+            if sp.current_price and sp.size_m2 and sp.size_m2 > 10:
+                m2_prices.append(sp.current_price / sp.size_m2)
 
         avg_days_to_sell = (
             round(sum(days_to_sell_list) / len(days_to_sell_list))
             if days_to_sell_list
             else 0
         )
+        avg_m2 = round(sum(m2_prices) / len(m2_prices)) if m2_prices else 0
 
         # 3. Price drops & increases in interval from price_history
         change_rows = (
@@ -153,6 +158,7 @@ class AnalyticsService:
                 "days_to_sell": [],
                 "discounts": [],
                 "sale_prices": [],
+                "sale_m2_prices": [],
             }
             for z in CANONICAL_ZONES
         }
@@ -169,6 +175,8 @@ class AnalyticsService:
                 zd["sales"] += 1
                 if sp.current_price and sp.current_price > 0:
                     zd["sale_prices"].append(sp.current_price)
+                if sp.current_price and sp.size_m2 and sp.size_m2 > 10:
+                    zd["sale_m2_prices"].append(sp.current_price / sp.size_m2)
                 if sp.first_seen_at and sp.sold_at:
                     d = (sp.sold_at - sp.first_seen_at).days
                     if d >= 0:
@@ -204,6 +212,11 @@ class AnalyticsService:
                 if zd["sale_prices"]
                 else 0
             )
+            avg_z_m2 = (
+                round(sum(zd["sale_m2_prices"]) / len(zd["sale_m2_prices"]))
+                if zd["sale_m2_prices"]
+                else 0
+            )
 
             if zd["inclusions"] > 0 or zd["sales"] > 0:
                 zone_breakdown.append(
@@ -214,6 +227,7 @@ class AnalyticsService:
                         "avg_days_to_sell": avg_z_days,
                         "avg_discount_pct": avg_z_disc,
                         "avg_sale_price": avg_z_price,
+                        "avg_m2": avg_z_m2,
                     }
                 )
 
@@ -232,6 +246,7 @@ class AnalyticsService:
             "increases_count": increases_count,
             "avg_inc_pct": avg_inc_pct,
             "avg_days_to_sell": avg_days_to_sell,
+            "avg_m2": avg_m2,
             "zone_breakdown": zone_breakdown,
         }
 

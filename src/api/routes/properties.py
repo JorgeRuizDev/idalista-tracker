@@ -13,9 +13,10 @@ from src.api.dependencies import get_db
 from src.api.schemas import (
     BatchIngestionRequest,
     BatchIngestionResponse,
-    PropertyDetailResponse,
     DiscardDetailRequest,
     DiscardDetailResponse,
+    PriceHistoryResponse,
+    PropertyDetailResponse,
     PropertyItem,
     PropertyListResponse,
     PropertyPhotoResponse,
@@ -205,6 +206,26 @@ async def get_property_image(
                 headers={"Cache-Control": "public, max-age=86400"},
             )
 
+    # Check local downloaded gallery photos
+    if prop.photos:
+        first_photo = sorted(prop.photos, key=lambda x: x.sequence_index)[0]
+        media_service = MediaService()
+        local_disk_path = media_service.media_root / first_photo.local_file_path.lstrip("/")
+        if local_disk_path.exists() and local_disk_path.stat().st_size > 0:
+            raw_bytes = local_disk_path.read_bytes()
+            content_type = first_photo.content_type or "image/jpeg"
+            try:
+                b64 = base64.b64encode(raw_bytes).decode("ascii")
+                prop.image_data = f"data:{content_type};base64,{b64}"
+                db.commit()
+            except Exception:
+                db.rollback()
+            return Response(
+                content=raw_bytes,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
     if prop.image_url:
         try:
             req = urllib.request.Request(
@@ -366,20 +387,24 @@ async def get_property(
     idealista_id: str,
     db: Session = Depends(get_db),
 ) -> PropertyDetailResponse:
-    """Get a single property by its idealista ID.
+    """Get a single property by its idealista ID (or internal numeric ID).
 
     Args:
-        idealista_id: The idealista property ID.
+        idealista_id: The idealista property ID or database ID.
         db: Database session.
 
     Returns:
-        Property detail with price history.
+        Property detail with price history and normalized metrics.
 
     Raises:
         HTTPException: If property not found.
     """
     service = PropertyService(db)
     property_obj = service.get_property_with_history(idealista_id)
+    if not property_obj and idealista_id.isdigit():
+        property_obj = db.query(Property).filter(Property.id == int(idealista_id)).first()
+        if property_obj:
+            _ = property_obj.price_history
 
     if not property_obj:
         raise HTTPException(
@@ -387,16 +412,90 @@ async def get_property(
             detail={"error": "Property not found", "idealista_id": idealista_id},
         )
 
-    photos_list = [ph.original_url for ph in getattr(property_obj, "photos", [])]
+    # Normalize zone and domain metrics
+    from datetime import datetime
+    from src.services.zone_service import normalize_zone
+
+    p_zone = normalize_zone(property_obj.title, property_obj.location)
+    setattr(property_obj, "zone", p_zone)
+    setattr(property_obj, "address", getattr(property_obj, "address", property_obj.location))
+
+    orig_p = property_obj.original_price or 0
+    cur_p = property_obj.current_price or 0
+    if orig_p and cur_p and orig_p > cur_p:
+        disc_amount = orig_p - cur_p
+        disc_pct = round((disc_amount / orig_p) * 100.0, 1)
+    else:
+        disc_amount = 0
+        disc_pct = 0.0
+    setattr(property_obj, "discount_amount", disc_amount)
+    setattr(property_obj, "discount_pct", disc_pct)
+
+    if property_obj.size_m2 and cur_p:
+        setattr(property_obj, "price_per_m2", round(cur_p / property_obj.size_m2))
+
+    days_on_market = None
+    if property_obj.first_seen_at:
+        if property_obj.status == "sold":
+            end_time = property_obj.sold_at or property_obj.last_seen_at
+            if end_time:
+                days_on_market = max(0, (end_time - property_obj.first_seen_at).days)
+        else:
+            days_on_market = max(0, (datetime.utcnow() - property_obj.first_seen_at).days)
+    setattr(property_obj, "days_on_market", days_on_market)
+
+    media_service = MediaService()
+    photos_list = [
+        media_service.format_media_url(ph.local_file_path)
+        for ph in sorted(getattr(property_obj, "photos", []), key=lambda p: p.sequence_index)
+    ]
     if not photos_list:
-        if property_obj.image_data:
+        if property_obj.image_data or property_obj.image_url:
             photos_list = [f"/api/v1/properties/{property_obj.idealista_id}/image"]
-            if property_obj.image_url:
-                photos_list.append(property_obj.image_url)
-        elif property_obj.image_url:
-            photos_list = [property_obj.image_url]
-    setattr(property_obj, "photos", photos_list)
-    return PropertyDetailResponse.model_validate(property_obj)
+
+    history_items = [
+        PriceHistoryResponse.model_validate(h)
+        for h in getattr(property_obj, "price_history", [])
+    ]
+
+    return PropertyDetailResponse(
+        id=property_obj.id,
+        idealista_id=property_obj.idealista_id,
+        title=property_obj.title,
+        property_type=property_obj.property_type,
+        location=property_obj.location,
+        original_price=orig_p,
+        current_price=cur_p,
+        price_drop_percentage=property_obj.price_drop_percentage,
+        size_m2=property_obj.size_m2,
+        bedrooms=property_obj.bedrooms,
+        floor=property_obj.floor,
+        has_elevator=property_obj.has_elevator,
+        property_url=property_obj.property_url,
+        image_url=property_obj.image_url,
+        image_data=property_obj.image_data,
+        first_seen_at=property_obj.first_seen_at,
+        last_seen_at=property_obj.last_seen_at,
+        missing_since=property_obj.missing_since,
+        sold_at=property_obj.sold_at,
+        status=property_obj.status,
+        detail_status=getattr(property_obj, "detail_status", "legacy"),
+        detail_updated_at=getattr(property_obj, "detail_updated_at", None),
+        discard_reason=getattr(property_obj, "discard_reason", None),
+        photos_count=len(photos_list),
+        created_at=property_obj.created_at,
+        updated_at=property_obj.updated_at,
+        is_active=property_obj.is_active,
+        price_history_count=len(history_items),
+        zone=p_zone,
+        address=getattr(property_obj, "address", property_obj.location),
+        discount_amount=disc_amount,
+        discount_pct=disc_pct,
+        price_per_m2=round(cur_p / property_obj.size_m2) if (property_obj.size_m2 and cur_p) else None,
+        days_on_market=days_on_market,
+        photos=photos_list,
+        price_history=history_items,
+    )
 
 
 @router.post("/batch", response_model=BatchIngestionResponse)

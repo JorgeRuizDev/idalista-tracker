@@ -23,6 +23,7 @@ def analytics_db():
         location="Gamonal",
         original_price=200000,
         current_price=180000,
+        size_m2=90,
         property_url="https://idealista.com/p1",
         status="sold",
         first_seen_at=datetime(2026, 7, 1, 10, 0, 0),
@@ -98,8 +99,12 @@ def test_get_interval_audit_aggregations(analytics_db):
     assert result["increases_count"] == 1
     # Days to sell for p1: July 21 - July 1 = 20 days
     assert result["avg_days_to_sell"] == 20
+    # Avg price per m2: 180000 / 90 = 2000
+    assert result["avg_m2"] == 2000
     # Zone breakdown
     assert len(result["zone_breakdown"]) > 0
+    gamonal_zone = next(z for z in result["zone_breakdown"] if "Gamonal" in z["zone"])
+    assert gamonal_zone["avg_m2"] == 2000
 
 
 def test_get_interval_audit_zero_sales(analytics_db):
@@ -114,3 +119,4 @@ def test_get_interval_audit_zero_sales(analytics_db):
     assert result["total_drop_amount"] == 0
     assert result["increases_count"] == 0
     assert result["avg_days_to_sell"] == 0
+    assert result["avg_m2"] == 0

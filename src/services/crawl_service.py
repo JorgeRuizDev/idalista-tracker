@@ -196,7 +196,40 @@ def detect_missing_properties(
             days_missing = (datetime.utcnow() - prop.missing_since).days
             if days_missing > 30 and prop.status == "missing":
                 prop.status = "sold"
+                prop.is_active = False
                 prop.sold_at = datetime.utcnow()
+    
+    # Global sweep: Any active property whose last_seen_at is older than 30 days
+    cutoff_time = datetime.utcnow() - timedelta(days=30)
+    stale_active_properties = (
+        db.query(Property)
+        .filter(Property.status == "active")
+        .filter(Property.last_seen_at < cutoff_time)
+        .all()
+    )
+    for stale_prop in stale_active_properties:
+        stale_prop.status = "sold"
+        stale_prop.is_active = False
+        if not stale_prop.sold_at:
+            stale_prop.sold_at = stale_prop.last_seen_at + timedelta(days=30) if stale_prop.last_seen_at else datetime.utcnow()
+        if stale_prop.detail_status == "pending":
+            stale_prop.detail_status = "discarded"
+            stale_prop.discard_reason = "delisted"
+            stale_prop.detail_updated_at = datetime.utcnow()
+        marked_as_missing += 1
+
+    # Global sweep: Any property missing for > 30 days that is still status="missing"
+    stale_missing_properties = (
+        db.query(Property)
+        .filter(Property.status == "missing")
+        .filter(Property.missing_since < cutoff_time)
+        .all()
+    )
+    for sm_prop in stale_missing_properties:
+        sm_prop.status = "sold"
+        sm_prop.is_active = False
+        if not sm_prop.sold_at:
+            sm_prop.sold_at = sm_prop.missing_since + timedelta(days=30)
     
     db.commit()
     

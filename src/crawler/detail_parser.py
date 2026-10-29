@@ -68,12 +68,18 @@ class DetailParser:
         cleaned = re.sub(r"\s+", " ", unescaped).strip()
         return cleaned
 
-    def parse_html(self, html_content: str, http_status: Optional[int] = None) -> Dict[str, Any]:
+    def parse_html(
+        self,
+        html_content: str,
+        http_status: Optional[int] = None,
+        extra_photos: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Parse Idealista detail page HTML.
 
         Args:
             html_content: Raw HTML text of the page.
             http_status: Optional HTTP status code from response.
+            extra_photos: Optional list of photo dicts (e.g. from window.fullScreenGalleryPics).
 
         Returns:
             Dictionary containing extracted attributes, features, and photo list.
@@ -112,7 +118,7 @@ class DetailParser:
         features = self._extract_features(html_content, json_ld_data)
 
         # 7. Extract gallery photos
-        photos = self._extract_photos(html_content, json_ld_data)
+        photos = self._extract_photos(html_content, json_ld_data, extra_photos=extra_photos)
 
         return {
             "is_delisted": False,
@@ -288,6 +294,41 @@ class DetailParser:
             if "certificado energético" in lower or "consumo:" in lower or "emisiones:" in lower:
                 features["energy_certificate"] = item_text
 
+        # Extract advertiser / inmobiliaria
+        agency = None
+        advertiser_type = "professional"
+
+        # Check for agency link with /pro/
+        pro_match = re.search(r'<a\s+[^>]*href=["\'][^"\']*/pro/[^"\']*["\'][^>]*>(.*?)</a>', html_content, re.IGNORECASE | re.DOTALL)
+        if pro_match:
+            agency = self.clean_text(pro_match.group(1))
+
+        if not agency:
+            agency_name_match = re.search(r'class=["\'][^"\']*(?:about-advertiser-name|professional-name|advertiser-name)[^"\']*["\'][^>]*>(.*?)<', html_content, re.IGNORECASE)
+            if agency_name_match:
+                agency = self.clean_text(agency_name_match.group(1))
+
+        if not agency:
+            logo_match = re.search(r'<img\s+[^>]*(?:class=["\'][^"\']*(?:logo-inmo|professional-logo)[^"\']*["\'][^>]*alt=["\']([^"\']+)["\']|alt=["\']([^"\']+)["\'][^>]*class=["\'][^"\']*(?:logo-inmo|professional-logo)[^"\']*["\'])', html_content, re.IGNORECASE)
+            if logo_match:
+                agency = self.clean_text(logo_match.group(1) or logo_match.group(2))
+
+        lower_content = html_content.lower()
+        if not agency and ("anuncio de particular" in lower_content or "contact-client-name" in lower_content):
+            agency = "Particular"
+            advertiser_type = "private"
+
+        if not agency:
+            seller = json_ld_data.get("seller")
+            if isinstance(seller, dict) and "name" in seller:
+                agency = seller["name"]
+            elif isinstance(seller, str):
+                agency = seller
+
+        if agency:
+            features["agency"] = agency
+            features["advertiser_type"] = advertiser_type
+
         return features
 
     IMG_BLOCK_PATTERN = re.compile(r"<img\s+[^>]*>", re.IGNORECASE)
@@ -297,18 +338,88 @@ class DetailParser:
     )
     ALT_PATTERN = re.compile(r'alt=["\']([^"\']*)["\']', re.IGNORECASE)
 
+    @staticmethod
+    def _extract_balanced_json(text: str, marker: str) -> Optional[str]:
+        pos = text.find(marker)
+        if pos == -1:
+            return None
+        first_brace = text.find("{", pos)
+        first_bracket = text.find("[", pos)
+        if first_brace == -1 and first_bracket == -1:
+            return None
+        if first_brace != -1 and (first_bracket == -1 or first_brace < first_bracket):
+            open_ch, close_ch = "{", "}"
+            start_idx = first_brace
+        else:
+            open_ch, close_ch = "[", "]"
+            start_idx = first_bracket
+
+        depth = 0
+        in_string = False
+        quote_char = ""
+        escape = False
+
+        for i in range(start_idx, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if in_string:
+                if ch == quote_char:
+                    in_string = False
+                continue
+            if ch in ('"', "'"):
+                in_string = True
+                quote_char = ch
+                continue
+            if ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return text[start_idx : i + 1]
+        return None
+
     def _extract_photos(
-        self, html_content: str, json_ld_data: Dict[str, Any]
+        self,
+        html_content: str,
+        json_ld_data: Dict[str, Any],
+        extra_photos: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """Extract ordered, deduplicated gallery image URLs."""
         photos: List[Dict[str, Any]] = []
-        seen_urls = set()
+        seen_photo_ids: Dict[str, int] = {}
+
+        def is_valid_photo(url: str) -> bool:
+            if not url:
+                return False
+            lower = url.lower()
+            if any(k in lower for k in [".svg", ".gif", "/static/", "/icons/", "/flags/", "st3.idealista", "st2.idealista", "st1.idealista"]):
+                return False
+            return "idealista.com" in lower and any(k in lower for k in ["img", "image"])
+
+        def get_photo_base_id(url: str) -> str:
+            m = re.search(r"/([^/?#]+?)\.(?:webp|jpg|jpeg|png)(?:$|\?)", url, re.IGNORECASE)
+            return m.group(1) if m else url
 
         def add_photo(url: str, caption: Optional[str] = None) -> None:
             clean_url = url.split("?")[0].strip()
-            if not clean_url or clean_url in seen_urls:
+            if not clean_url or not is_valid_photo(clean_url):
                 return
-            seen_urls.add(clean_url)
+            photo_id = get_photo_base_id(clean_url)
+            if photo_id in seen_photo_ids:
+                idx = seen_photo_ids[photo_id]
+                existing_url = photos[idx]["original_url"]
+                if clean_url.lower().endswith(".jpg") and not existing_url.lower().endswith(".jpg"):
+                    photos[idx]["original_url"] = clean_url
+                if caption and not photos[idx].get("caption"):
+                    photos[idx]["caption"] = caption.strip()
+                return
+
+            seen_photo_ids[photo_id] = len(photos)
             photos.append(
                 {
                     "sequence_index": len(photos),
@@ -317,25 +428,101 @@ class DetailParser:
                 }
             )
 
-        # 1. Look for img tags with idealista CDN URLs
-        for img_block_match in self.IMG_BLOCK_PATTERN.finditer(html_content):
-            tag_content = img_block_match.group(0)
-            src_match = self.SRC_PATTERN.search(tag_content)
-            if src_match:
-                url = src_match.group(1)
-                alt_match = self.ALT_PATTERN.search(tag_content)
-                caption = alt_match.group(1) if alt_match else None
-                add_photo(url, caption)
+        # 1. Add extra photos (e.g. from window.fullScreenGalleryPics or window.adMultimediasInfo)
+        if extra_photos:
+            for item in extra_photos:
+                if isinstance(item, dict):
+                    url = item.get("url") or item.get("src") or item.get("rawUrl") or item.get("original") or item.get("msrc")
+                    if url:
+                        add_photo(url, item.get("tag") or item.get("caption") or item.get("title") or item.get("description"))
 
-        # 2. Check JSON-LD image property
-        json_imgs = json_ld_data.get("image")
-        if isinstance(json_imgs, list):
-            for img in json_imgs:
-                if isinstance(img, str):
-                    add_photo(img)
-                elif isinstance(img, dict) and "url" in img:
-                    add_photo(img["url"], img.get("caption"))
-        elif isinstance(json_imgs, str):
-            add_photo(json_imgs)
+        # 2. Look for adMultimediasInfo in inline script tags
+        raw_media = self._extract_balanced_json(html_content, "adMultimediasInfo")
+        if raw_media:
+            try:
+                fixed = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)\s*:', r'\1"\2":', raw_media)
+                # Remove trailing commas before } or ]
+                fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+                parsed = json.loads(fixed)
+                def extract_from_obj(obj):
+                    if isinstance(obj, list):
+                        for el in obj:
+                            extract_from_obj(el)
+                    elif isinstance(obj, dict):
+                        u = obj.get("url") or obj.get("src") or obj.get("rawUrl") or obj.get("original") or obj.get("msrc")
+                        if u and isinstance(u, str):
+                            add_photo(u, obj.get("tag") or obj.get("caption") or obj.get("title") or obj.get("description"))
+                        for key in ("multimedias", "photos", "images"):
+                            if key in obj:
+                                extract_from_obj(obj[key])
+                extract_from_obj(parsed)
+            except Exception:
+                for url_match in re.finditer(r'https://(?:img\d*|images\d*)\.idealista\.com/[^\s"\',]+', raw_media):
+                    add_photo(url_match.group(0))
+
+        # 3. Look for fullScreenGalleryPics in inline script tags
+        raw_pics = self._extract_balanced_json(html_content, "fullScreenGalleryPics")
+        if raw_pics:
+            try:
+                fixed = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)\s*:', r'\1"\2":', raw_pics)
+                fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+                items = json.loads(fixed)
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict):
+                            url = item.get("url") or item.get("src") or item.get("rawUrl") or item.get("original")
+                            if url:
+                                add_photo(url, item.get("tag") or item.get("caption") or item.get("title") or item.get("description"))
+            except Exception:
+                for url_match in re.finditer(r'https://(?:img\d*|images\d*)\.idealista\.com/[^\s"\',]+', raw_pics):
+                    add_photo(url_match.group(0))
+
+        # 3. Check opened gallery containers in the DOM (slider, modal, or mosaic)
+        gallery_block_match = re.search(
+            r'<(?:div|section|article)[^>]*class=["\'][^"\']*(?:fullScreenGallery|gallery-slider|slideshow|modal-gallery|gallery-modal|media-viewer|main-multimedia|gallery-mosaic|detail-image-gallery|gallery-fallback|gallery)[^"\']*["\'][^>]*>([\s\S]*?)</(?:div|section|article)>',
+            html_content,
+            re.IGNORECASE,
+        )
+        if gallery_block_match:
+            container_html = gallery_block_match.group(1)
+            for img_block_match in self.IMG_BLOCK_PATTERN.finditer(container_html):
+                tag_content = img_block_match.group(0)
+                src_match = self.SRC_PATTERN.search(tag_content)
+                if src_match:
+                    url = src_match.group(1)
+                    alt_match = self.ALT_PATTERN.search(tag_content)
+                    caption = alt_match.group(1) if alt_match else None
+                    add_photo(url, caption)
+
+        # 4. Fallback script regex scan across script blocks if < 3 photos found
+        if len(photos) < 3:
+            for script_match in re.finditer(r'<script[^>]*>([\s\S]*?)</script>', html_content, re.IGNORECASE):
+                script_text = script_match.group(1)
+                if "idealista.com" in script_text:
+                    for url_match in re.finditer(r'https://(?:img\d*|images\d*)\.idealista\.com/(?:blur/)?(?:WEB_DETAIL[^\s"\',]*|480_360[^\s"\',]*|id\.pro[^\s"\',]*)/[^\s"\',]+\.(?:webp|jpg|jpeg)', script_text, re.IGNORECASE):
+                        add_photo(url_match.group(0))
+
+        # 5. Fallback to general img tags with idealista CDN URLs if still no photos
+        if not photos:
+            for img_block_match in self.IMG_BLOCK_PATTERN.finditer(html_content):
+                tag_content = img_block_match.group(0)
+                src_match = self.SRC_PATTERN.search(tag_content)
+                if src_match:
+                    url = src_match.group(1)
+                    alt_match = self.ALT_PATTERN.search(tag_content)
+                    caption = alt_match.group(1) if alt_match else None
+                    add_photo(url, caption)
+
+        # 5. Check JSON-LD image property
+        if not photos:
+            json_imgs = json_ld_data.get("image")
+            if isinstance(json_imgs, list):
+                for img in json_imgs:
+                    if isinstance(img, str):
+                        add_photo(img)
+                    elif isinstance(img, dict) and "url" in img:
+                        add_photo(img["url"], img.get("caption"))
+            elif isinstance(json_imgs, str):
+                add_photo(json_imgs)
 
         return photos

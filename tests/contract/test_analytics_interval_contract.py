@@ -26,6 +26,7 @@ def test_get_interval_audit_contract(client):
     assert "increases_count" in data
     assert "avg_inc_pct" in data
     assert "avg_days_to_sell" in data
+    assert "avg_m2" in data
     assert "zone_breakdown" in data
     assert isinstance(data["zone_breakdown"], list)
 
@@ -37,6 +38,7 @@ def test_get_interval_audit_contract(client):
         assert "avg_days_to_sell" in z
         assert "avg_discount_pct" in z
         assert "avg_sale_price" in z
+        assert "avg_m2" in z
 
 
 def test_get_interval_audit_missing_dates(client):

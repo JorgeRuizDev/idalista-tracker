@@ -77,6 +77,12 @@ class PropertyResponse(PropertyBase):
 class PropertyDetailResponse(PropertyResponse):
     """Property detail response with price history."""
 
+    zone: Optional[str] = None
+    address: Optional[str] = None
+    discount_amount: int = 0
+    discount_pct: float = 0.0
+    price_per_m2: Optional[int] = None
+    days_on_market: Optional[int] = None
     photos: List[str] = []
     price_history: List[PriceHistoryResponse] = []
 
@@ -726,6 +732,7 @@ class IntervalZoneMetric(BaseModel):
     avg_days_to_sell: int
     avg_discount_pct: float
     avg_sale_price: int
+    avg_m2: int = 0
 
 
 class IntervalAuditResponse(BaseModel):
@@ -742,6 +749,7 @@ class IntervalAuditResponse(BaseModel):
     increases_count: int
     avg_inc_pct: float
     avg_days_to_sell: int
+    avg_m2: int = 0
     zone_breakdown: List[IntervalZoneMetric]
 
 

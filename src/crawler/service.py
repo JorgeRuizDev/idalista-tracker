@@ -256,6 +256,9 @@ class CrawlerService:
         Returns:
             True if property was updated.
         """
+        # Refresh last seen timestamp
+        existing.last_seen_at = datetime.utcnow()
+
         # Reactivate if property was previously marked as missing/sold
         if existing.status in ("missing", "sold"):
             existing.status = "active"

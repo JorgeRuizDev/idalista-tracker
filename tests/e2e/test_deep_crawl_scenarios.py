@@ -229,3 +229,76 @@ def test_scenario_4_snapshot_endpoint_for_frontend_modal(client, db_session):
         data["snapshot"]["photos"][0]["local_url"]
         == "/media/properties/test_modal_prop/photo_000.jpg"
     )
+
+
+# =====================================================================
+# Scenario 5: Full Photo Gallery (22+ images) Persistence & Retrieval
+# =====================================================================
+def test_scenario_5_large_photo_gallery_storage(client, db_session):
+    """Scenario 5: Submit a snapshot with 24 gallery photos, verify all 24 are saved and ordered."""
+    prop = Property(
+        idealista_id="112893957",
+        title="Piso en Burgos con Galería Completa",
+        location="Burgos",
+        original_price=180000,
+        current_price=180000,
+        property_url="https://www.idealista.com/inmueble/112893957/",
+        detail_status="pending",
+    )
+    db_session.add(prop)
+    db_session.commit()
+
+    photos_payload = [
+        {
+            "original_url": f"https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/{i}.jpg",
+            "sequence_index": i,
+            "caption": f"Foto {i + 1}",
+        }
+        for i in range(24)
+    ]
+
+    mock_downloaded = [
+        {
+            "sequence_index": p["sequence_index"],
+            "original_url": p["original_url"],
+            "local_file_path": f"properties/112893957/photo_{p['sequence_index']:03d}.jpg",
+            "local_url": f"/media/properties/112893957/photo_{p['sequence_index']:03d}.jpg",
+            "caption": p["caption"],
+            "file_size_bytes": 45000,
+            "content_type": "image/jpeg",
+        }
+        for p in photos_payload
+    ]
+
+    detail_payload = {
+        "source_engine": "chrome_extension",
+        "delisted": False,
+        "full_description": "Excelente piso con galería completa de 24 fotografías.",
+        "neighborhood": "Plantío",
+        "city": "Burgos",
+        "province": "Burgos",
+        "features": {"rooms": 3, "bathrooms": 2},
+        "photos": photos_payload,
+    }
+
+    with patch.object(MediaService, "download_property_photos", new_callable=AsyncMock) as mock_dl:
+        mock_dl.return_value = mock_downloaded
+        res_submit = client.post("/api/v1/crawl/details/112893957", json=detail_payload)
+
+    assert res_submit.status_code == 200
+    submit_data = res_submit.json()
+    assert submit_data["status"] == "success"
+    assert submit_data["detail_status"] == "completed"
+    assert submit_data["photos_downloaded"] == 24
+
+    # Query snapshot endpoint to verify all 24 photos are retrieved in sequence
+    res_snap = client.get(f"/api/v1/properties/{prop.id}/snapshot")
+    assert res_snap.status_code == 200
+    snap_data = res_snap.json()
+    assert snap_data["detail_status"] == "completed"
+    assert len(snap_data["snapshot"]["photos"]) == 24
+    assert snap_data["snapshot"]["photos"][0]["sequence_index"] == 0
+    assert snap_data["snapshot"]["photos"][23]["sequence_index"] == 23
+    assert snap_data["snapshot"]["photos"][0]["caption"] == "Foto 1"
+    assert snap_data["snapshot"]["photos"][23]["caption"] == "Foto 24"
+

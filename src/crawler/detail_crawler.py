@@ -168,8 +168,96 @@ class PlaywrightDetailCrawler:
                         "raw_html": html_content,
                     }
 
+                # Simulate click on gallery trigger / "Más fotos" button to open gallery and hydrate all photos
+                try:
+                    clicked = await page.evaluate("""() => {
+                        const clickables = Array.from(document.querySelectorAll('button, a, div[role="button"], span[role="button"]'));
+                        const photoBtn = clickables.find(el => {
+                            const text = (el.innerText || el.textContent || '').toLowerCase().trim();
+                            return (
+                                text.includes('más fotos') ||
+                                text.includes('mas fotos') ||
+                                text.includes('ver fotos') ||
+                                text.includes('ver todas las fotos') ||
+                                text.includes('todas las fotos') ||
+                                /\\b\\d+\\s*fotos\\b/i.test(text) ||
+                                /\\bfotos\\s*\\(\\d+\\)/i.test(text)
+                            );
+                        });
+
+                        const selectors = [
+                            'button.btn-more-photos',
+                            'button.more-photos',
+                            'button.show-all-photos',
+                            'button.gallery-trigger',
+                            'button[data-action="open-gallery"]',
+                            'button[data-action="show-photos"]',
+                            '.main-multimedia button',
+                            '#main-multimedia button',
+                            '.gallery-mosaic button',
+                            '.main-image button',
+                            '.multimedia-count',
+                            '[class*="multimedia"] button',
+                            '[class*="gallery"] button',
+                            '[class*="more-photos"]',
+                            'a[href*="/foto/1/"]',
+                            '#main-multimedia .main-image',
+                            '#main-multimedia img',
+                            '.gallery-mosaic img',
+                            'article.container-detail .main-image',
+                        ];
+
+                        let target = photoBtn || null;
+                        if (!target) {
+                            for (const sel of selectors) {
+                                const el = document.querySelector(sel);
+                                if (el) {
+                                    target = el;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (target) {
+                            try { target.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+                            ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(evt => {
+                                target.dispatchEvent(new MouseEvent(evt, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+                            });
+                            if (typeof target.click === 'function') target.click();
+                            return true;
+                        }
+                        return false;
+                    }""")
+                    if clicked:
+                        logger.info(f"Triggered gallery button click on {url}, waiting for gallery hydration...")
+                        await page.wait_for_timeout(1500)
+                except Exception as e:
+                    logger.debug(f"Gallery trigger click notice on {url}: {e}")
+
+                # Extract window.fullScreenGalleryPics if populated in window
+                extra_photos = []
+                try:
+                    extra_photos = await page.evaluate("""() => {
+                        const win = window;
+                        const pics = win.fullScreenGalleryPics || win.idealista?.detailConfig?.fullScreenGalleryPics;
+                        if (Array.isArray(pics) && pics.length > 0) {
+                            return pics.map(p => ({
+                                url: p.url || p.src || p.rawUrl || p.original,
+                                tag: p.tag || p.title || p.caption || p.description,
+                            }));
+                        }
+                        return [];
+                    }""")
+                except Exception as e:
+                    logger.debug(f"Could not read window.fullScreenGalleryPics on {url}: {e}")
+
+                # Re-read content now that gallery may have loaded in the DOM
+                html_content = await page.content()
+
                 # Parse listing content
-                parsed_data = self.parser.parse_html(html_content, http_status=status_code)
+                parsed_data = self.parser.parse_html(
+                    html_content, http_status=status_code, extra_photos=extra_photos
+                )
                 parsed_data["http_status"] = status_code
                 parsed_data["challenge"] = "none"
                 parsed_data["source_engine"] = "backend_playwright"
