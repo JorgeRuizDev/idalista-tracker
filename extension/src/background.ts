@@ -21,9 +21,9 @@ chrome.runtime.onInstalled.addListener(() => {
   
   chrome.storage.local.set({ config: defaultConfig });
 
-  // Schedule periodic detail fallback crawl
+  // Clear any legacy alarms to avoid unwanted automatic tabs
   if (chrome.alarms) {
-    chrome.alarms.create('DETAIL_FALLBACK_CRAWL', { periodInMinutes: 2 });
+    chrome.alarms.clearAll();
   }
 });
 
@@ -381,15 +381,3 @@ chrome.runtime.onStartup.addListener(async () => {
     // The crawler will handle resume internally when called
   }
 });
-
-// Periodic fallback crawl alarm listener
-if (typeof chrome !== 'undefined' && chrome.alarms) {
-  chrome.alarms.onAlarm.addListener(alarm => {
-    if (alarm.name === 'DETAIL_FALLBACK_CRAWL') {
-      console.log('[Background] Running scheduled detail fallback crawl...');
-      runFallbackDetailCrawlCycle().catch(err => {
-        console.error('[Background] Error in detail fallback alarm execution:', err);
-      });
-    }
-  });
-}

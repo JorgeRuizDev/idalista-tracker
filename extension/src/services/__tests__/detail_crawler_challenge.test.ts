@@ -2,12 +2,13 @@
  * Unit tests for challenge detection, tab focus, and resilient tab-close handling.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { checkForChallenge, runFullPendingDetailQueue } from '../detail_crawler';
+import { checkForChallenge, runFullPendingDetailQueue, _resetDetailQueueLockForTesting } from '../detail_crawler';
 import * as api from '../api';
 
 describe('detail_crawler anti-bot challenge & resilience', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetDetailQueueLockForTesting();
     // Setup chrome mock
     (global as any).chrome = {
       tabs: {

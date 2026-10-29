@@ -76,13 +76,13 @@ async function saveConfig(): Promise<void> {
     const minNavDelay = parseInt(minNavDelayInput.value, 10) * 1000;
     const maxNavDelay = parseInt(maxNavDelayInput.value, 10) * 1000;
     
-    if (minPageDelay >= maxPageDelay) {
-      alert('Min page delay must be less than max page delay');
+    if (minPageDelay > maxPageDelay) {
+      alert('Min page delay must be less than or equal to max page delay');
       return;
     }
     
-    if (minNavDelay >= maxNavDelay) {
-      alert('Min navigation delay must be less than max navigation delay');
+    if (minNavDelay > maxNavDelay) {
+      alert('Min navigation delay must be less than or equal to max navigation delay');
       return;
     }
     

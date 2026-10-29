@@ -132,42 +132,266 @@ export function extractDetailSnapshot(): DetailSnapshotPayload {
     }
   });
 
+  // Advertiser / Inmobiliaria extraction
+  let agency: string | undefined;
+  let advertiserType: 'professional' | 'private' = 'professional';
+
+  const agencyLinkEl = document.querySelector<HTMLAnchorElement>(
+    'a[href*="/pro/"], .about-advertiser a, .professional-name a, .advertiser-name a'
+  );
+  if (agencyLinkEl?.textContent?.trim()) {
+    agency = agencyLinkEl.textContent.trim();
+    advertiserType = 'professional';
+  }
+
+  if (!agency) {
+    const agencyNameEl = document.querySelector(
+      '.about-advertiser-name, .professional-name, .advertiser-name, .about-advertiser .name'
+    );
+    if (agencyNameEl?.textContent?.trim()) {
+      agency = agencyNameEl.textContent.trim();
+      advertiserType = 'professional';
+    }
+  }
+
+  if (!agency) {
+    const logoEl = document.querySelector<HTMLImageElement>(
+      '.about-advertiser img, .professional-logo img, img.logo-inmo'
+    );
+    if (logoEl?.alt?.trim()) {
+      agency = logoEl.alt.trim();
+      advertiserType = 'professional';
+    }
+  }
+
+  const contactEl = document.querySelector('.contact-client-name, .about-advertiser');
+  const pageText = document.body
+    ? (document.body.innerText || document.body.textContent || '').toLowerCase()
+    : '';
+  const contactText = (contactEl?.textContent || '').toLowerCase();
+  if (!agency && (contactText.includes('particular') || pageText.includes('anuncio de particular'))) {
+    agency = 'Particular';
+    advertiserType = 'private';
+  }
+
+  if (!agency && jsonLdData.seller) {
+    const sellerName = typeof jsonLdData.seller === 'string' ? jsonLdData.seller : jsonLdData.seller?.name;
+    if (sellerName) {
+      agency = sellerName;
+      advertiserType = 'professional';
+    }
+  }
+
+  if (agency) {
+    features.agency = agency;
+    features.advertiser_type = advertiserType;
+  }
+
   // 6. Gallery photos
   const photos: DetailPhotoItem[] = [];
-  const seenUrls = new Set<string>();
+  const seenPhotoIds = new Map<string, number>();
 
-  const imgElements = document.querySelectorAll<HTMLImageElement>(
-    'img[src*="idealista.com"], img[data-ondemand-img*="idealista.com"], .gallery-fallback img'
-  );
+  function isValidListingPhoto(url: string): boolean {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    if (
+      lower.includes('.svg') ||
+      lower.includes('.gif') ||
+      lower.includes('/static/') ||
+      lower.includes('/icons/') ||
+      lower.includes('/flags/') ||
+      lower.includes('st3.idealista.com') ||
+      lower.includes('st2.idealista.com') ||
+      lower.includes('st1.idealista.com')
+    ) {
+      return false;
+    }
+    return lower.includes('idealista.com') && (lower.includes('img') || lower.includes('image'));
+  }
 
-  imgElements.forEach(img => {
-    const rawUrl = img.getAttribute('data-ondemand-img') || img.src;
+  function getPhotoBaseId(url: string): string {
+    const match = url.match(/\/([^\/?#]+?)\.(?:webp|jpg|jpeg|png)(?:$|\?)/i);
+    return match ? match[1] : url;
+  }
+
+  function addPhoto(rawUrl: string, caption?: string) {
     if (!rawUrl) return;
-
-    // Clean URL query params
     const cleanUrl = rawUrl.split('?')[0].trim();
-    if (!cleanUrl || seenUrls.has(cleanUrl)) return;
+    if (!cleanUrl || !isValidListingPhoto(cleanUrl)) return;
 
-    seenUrls.add(cleanUrl);
+    const photoId = getPhotoBaseId(cleanUrl);
+    if (seenPhotoIds.has(photoId)) {
+      const existingIdx = seenPhotoIds.get(photoId)!;
+      const existingUrl = photos[existingIdx].original_url;
+      if (cleanUrl.toLowerCase().endsWith('.jpg') && !existingUrl.toLowerCase().endsWith('.jpg')) {
+        photos[existingIdx].original_url = cleanUrl;
+      }
+      if (caption && !photos[existingIdx].caption) {
+        photos[existingIdx].caption = caption.trim();
+      }
+      return;
+    }
+
+    seenPhotoIds.set(photoId, photos.length);
     photos.push({
       original_url: cleanUrl,
       sequence_index: photos.length,
-      caption: img.alt?.trim() || undefined,
+      caption: caption?.trim() || undefined,
+    });
+  }
+
+  function extractBalancedJson(text: string, marker: string): string | null {
+    const pos = text.indexOf(marker);
+    if (pos === -1) return null;
+    const firstBrace = text.indexOf('{', pos);
+    const firstBracket = text.indexOf('[', pos);
+    if (firstBrace === -1 && firstBracket === -1) return null;
+
+    const startIdx =
+      firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)
+        ? firstBrace
+        : firstBracket;
+    const openCh = text[startIdx];
+    const closeCh = openCh === '{' ? '}' : ']';
+
+    let depth = 0;
+    let inString = false;
+    let quoteChar = '';
+    let escape = false;
+
+    for (let i = startIdx; i < text.length; i++) {
+      const ch = text[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        continue;
+      }
+      if (inString) {
+        if (ch === quoteChar) inString = false;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        inString = true;
+        quoteChar = ch;
+        continue;
+      }
+      if (ch === openCh) depth++;
+      else if (ch === closeCh) {
+        depth--;
+        if (depth === 0) return text.substring(startIdx, i + 1);
+      }
+    }
+    return null;
+  }
+
+  function parseMediaPayload(obj: any) {
+    if (!obj) return;
+    if (Array.isArray(obj)) {
+      for (const item of obj) parseMediaPayload(item);
+    } else if (typeof obj === 'object') {
+      const url = obj.url || obj.src || obj.rawUrl || obj.original || obj.msrc;
+      if (url && typeof url === 'string') {
+        addPhoto(url, obj.tag || obj.caption || obj.title || obj.description);
+      }
+      if (Array.isArray(obj.multimedias)) parseMediaPayload(obj.multimedias);
+      if (Array.isArray(obj.photos)) parseMediaPayload(obj.photos);
+      if (Array.isArray(obj.images)) parseMediaPayload(obj.images);
+    }
+  }
+
+  // Step A: Extract full high-res photo gallery from inline script tags
+  const scriptElements = Array.from(document.querySelectorAll('script'));
+  for (const script of scriptElements) {
+    const text = script.textContent || '';
+
+    // 1. adMultimediasInfo
+    if (text.includes('adMultimediasInfo')) {
+      const rawMedia = extractBalancedJson(text, 'adMultimediasInfo');
+      if (rawMedia) {
+        try {
+          const fixedJson = rawMedia
+            .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+            .replace(/,\s*([}\]])/g, '$1');
+          const parsed = JSON.parse(fixedJson);
+          parseMediaPayload(parsed);
+        } catch (_) {
+          const urlRegex = /https:\/\/(?:img\d*|images\d*)\.idealista\.com\/[^\s"',]+/g;
+          let urlMatch;
+          while ((urlMatch = urlRegex.exec(rawMedia)) !== null) {
+            addPhoto(urlMatch[0]);
+          }
+        }
+      }
+    }
+
+    // 2. fullScreenGalleryPics
+    if (text.includes('fullScreenGalleryPics')) {
+      const rawPics = extractBalancedJson(text, 'fullScreenGalleryPics');
+      if (rawPics) {
+        try {
+          const fixedJson = rawPics
+            .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+            .replace(/,\s*([}\]])/g, '$1');
+          const items = JSON.parse(fixedJson);
+          parseMediaPayload(items);
+        } catch (_) {
+          const urlRegex = /https:\/\/(?:img\d*|images\d*)\.idealista\.com\/[^\s"',]+/g;
+          let urlMatch;
+          while ((urlMatch = urlRegex.exec(rawPics)) !== null) {
+            addPhoto(urlMatch[0]);
+          }
+        }
+      }
+    }
+  }
+
+  // Step B: Script regex scan for high-res property images if < 3 photos found
+  if (photos.length < 3) {
+    for (const script of scriptElements) {
+      const text = script.textContent || '';
+      if (
+        text.includes('idealista.com') &&
+        (text.includes('WEB_DETAIL') || text.includes('image.master') || text.includes('blur/'))
+      ) {
+        const urlRegex =
+          /https:\/\/(?:img\d*|images\d*)\.idealista\.com\/(?:blur\/)?(?:WEB_DETAIL[^\s"',]*|480_360[^\s"',]*|id\.pro[^\s"',]*)\/[^\s"',]+\.(?:webp|jpg|jpeg)/gi;
+        let m;
+        while ((m = urlRegex.exec(text)) !== null) {
+          addPhoto(m[0]);
+        }
+      }
+    }
+  }
+
+  // Step B: Check DOM gallery images (including opened gallery modal/slider containers)
+  const galleryContainers = document.querySelectorAll(
+    '#fullScreenGallery, .fullScreenGallery, .gallery-slider, .slideshow, .modal-gallery, .gallery-modal, .media-viewer, #main-multimedia, .gallery-mosaic, .main-image, .gallery-fallback, #mosaic-container, .detail-image-gallery, .gallery, article.container-detail'
+  );
+  galleryContainers.forEach(container => {
+    const imgElements = container.querySelectorAll<HTMLImageElement>('img, source');
+    imgElements.forEach(el => {
+      const rawUrl =
+        el.getAttribute('data-ondemand-img') ||
+        el.getAttribute('data-src') ||
+        (el as HTMLImageElement).src ||
+        el.getAttribute('srcset');
+      if (rawUrl) {
+        const firstSrc = rawUrl.split(',')[0].trim().split(' ')[0];
+        addPhoto(firstSrc, (el as HTMLImageElement).alt);
+      }
     });
   });
 
-  // Also check JSON-LD images if DOM photos are sparse
+  // Step C: Fallback to JSON-LD image property
   if (photos.length === 0 && jsonLdData.image) {
     const jsonImgs = Array.isArray(jsonLdData.image) ? jsonLdData.image : [jsonLdData.image];
     jsonImgs.forEach((img: any) => {
       const url = typeof img === 'string' ? img : img?.url;
-      if (url && !seenUrls.has(url)) {
-        seenUrls.add(url);
-        photos.push({
-          original_url: url,
-          sequence_index: photos.length,
-          caption: typeof img === 'object' ? img?.caption : undefined,
-        });
+      if (url) {
+        addPhoto(url, typeof img === 'object' ? img?.caption : undefined);
       }
     });
   }

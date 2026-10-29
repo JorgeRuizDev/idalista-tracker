@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Unit tests for detail_extractor.ts (DOM and JSON-LD parsing)
  */
@@ -57,6 +58,54 @@ describe('detail_extractor', () => {
     expect(snapshot.photos[0].caption).toBe('Salón principal');
     expect(snapshot.photos[1].original_url).toBe('https://img3.idealista.com/blur/WEB_DETAIL/0/photo2.jpg');
     expect(snapshot.photos[1].caption).toBe('Dormitorio');
+  });
+
+  it('extracts full photo gallery from inline script with fullScreenGalleryPics', () => {
+    document.body.innerHTML = `
+      <div class="main-info__title-minor">Madrid</div>
+      <script>
+        var fullScreenGalleryPics = [
+          { url: "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/1.jpg", tag: "Salón" },
+          { url: "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/2.jpg", tag: "Cocina" },
+          { url: "https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/3.jpg", tag: "Dormitorio" }
+        ];
+      </script>
+      <!-- Ensure static SVG icons / flags are excluded -->
+      <img src="https://st3.idealista.com/static/common/img/icons/logo.svg" />
+      <img src="https://st3.idealista.com/static/common/img/flags/es.svg" />
+    `;
+
+    const snapshot = extractDetailSnapshot();
+
+    expect(snapshot.photos.length).toBe(3);
+    expect(snapshot.photos[0].original_url).toBe('https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/1.jpg');
+    expect(snapshot.photos[0].caption).toBe('Salón');
+    expect(snapshot.photos[1].original_url).toBe('https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/2.jpg');
+    expect(snapshot.photos[2].original_url).toBe('https://img3.idealista.com/blur/WEB_DETAIL_TOP-L-L/0/id/112893957/3.jpg');
+  });
+
+  it('extracts full photo gallery from inline script with adMultimediasInfo', () => {
+    document.body.innerHTML = `
+      <div class="main-info__title-minor">Burgos</div>
+      <script>
+        var adMultimediasInfo = {
+          multimedias: [
+            { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10001.webp", tag: "Fachada" },
+            { url: "https://img4.idealista.com/blur/WEB_DETAIL-XL/0/id.pro.es.image.master/1/2/3/10001.jpg", tag: "Fachada" },
+            { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10002.jpg", tag: "Salón" },
+            { url: "https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10003.jpg", tag: "Cocina" }
+          ]
+        };
+      </script>
+    `;
+
+    const snapshot = extractDetailSnapshot();
+
+    expect(snapshot.photos.length).toBe(3);
+    expect(snapshot.photos[0].original_url).toBe('https://img4.idealista.com/blur/WEB_DETAIL-XL/0/id.pro.es.image.master/1/2/3/10001.jpg');
+    expect(snapshot.photos[0].caption).toBe('Fachada');
+    expect(snapshot.photos[1].original_url).toBe('https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10002.jpg');
+    expect(snapshot.photos[2].original_url).toBe('https://img4.idealista.com/blur/WEB_DETAIL/0/id.pro.es.image.master/1/2/3/10003.jpg');
   });
 
   it('extracts coordinates and metadata from JSON-LD script', () => {
