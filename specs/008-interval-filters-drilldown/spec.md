@@ -110,7 +110,7 @@ Click "Rebajas de Precio" and select "Burgos Centro". Verify the list displays p
   - `selectedZone`: Selected canonical zone name or `'all'`.
   - `dateRange`: Start date (`YYYY-MM-DD`) and end date (`YYYY-MM-DD`) from the active interval.
 - **DrilldownPropertySummary**: Property record matching the interval and filter criteria, including title, zone, current price, original price, discount percentage/amount, sold status, and days on market.
-- **TerritorialZoneMetric**: Aggregated metrics per zone (inclusions, sales count, avg days to sell, avg discount %, avg sale price) displayed in the table and used for cross-filtering.
+- **TerritorialZoneMetric**: Aggregated metrics per zone (inclusions, sales count, avg days to sell, avg discount %, avg sale price, avg price per m2) displayed in the table and used for cross-filtering.
 
 ---
 

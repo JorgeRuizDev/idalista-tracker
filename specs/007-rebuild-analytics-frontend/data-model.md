@@ -88,6 +88,7 @@ Represents aggregated market dynamics within a selected calendar date interval `
 | `increases_count` | Integer | Number of price increases detected |
 | `avg_inc_pct` | Float | Average price increase percentage in interval |
 | `avg_days_to_sell` | Integer | Average time in days to sell for properties closed in interval |
+| `avg_m2` | Integer | Average price per square meter in EUR for sales closed in interval |
 | `zone_breakdown` | List[IntervalZoneMetric] | Territorial breakdown within this specific interval |
 
 ---
@@ -102,6 +103,7 @@ Represents aggregated market dynamics within a selected calendar date interval `
 | `avg_days_to_sell` | Integer | Average days on market until sale in this zone |
 | `avg_discount_pct` | Float | Average negotiation discount applied in this zone |
 | `avg_sale_price` | Integer | Average transaction closing price in EUR |
+| `avg_m2` | Integer | Average price per square meter in EUR for zone sales in interval |
 
 ---
 

@@ -105,6 +105,10 @@ As a property evaluator, I want the web interface's property detail modal to dis
   - Structured badges for all extracted physical features and equipment.
   - A status indicator differentiating listings with complete analysis from those still pending.
 - **FR-010**: All properties marked with `legacy` detail status MUST continue to be excluded from automated deep analysis to protect historical database records from unintended reprocessing.
+- **FR-011**: **Local Blob & Media Storage Persistence (Zero CDN Dependency)**: Image assets MUST NOT rely on volatile external CDN URLs (`img*.idealista.com`) for persistent display or storage. When listings are delisted, marked as sold, or deactivated on the portal, remote CDN links become unavailable. Therefore:
+  - Every property listing MUST store its primary cover image as a local binary blob / data URI (`image_data`) in persistent storage and/or local media file.
+  - All gallery photos captured during the Deep Analysis Stage MUST be downloaded as binary files to local media storage and referenced exclusively via internal routes (`/media/...` or `/api/v1/properties/{id}/image`).
+  - API responses and the frontend UI MUST NEVER link directly to external CDN URLs for persistent listing views or delisted properties, guaranteeing 100% media preservation regardless of remote listing expiration.
 
 ### Key Entities
 
@@ -119,7 +123,7 @@ As a property evaluator, I want the web interface's property detail modal to dis
 
 - **SC-001**: 100% of newly discovered property inclusions within a crawl session are automatically processed for deep analysis without manual operator intervention.
 - **SC-002**: All listings in `pending` status are processed sequentially during crawl runs until the queue is exhausted or explicitly halted by the operator.
-- **SC-003**: 100% of property photo galleries for successfully analyzed listings are preserved locally in persistent media storage and accessible directly even if remote portal listings expire.
+- **SC-003**: 100% of property photo galleries and primary cover images for successfully analyzed listings are preserved locally as binary blobs and persistent media storage, remaining fully accessible and viewable even when remote portal listings are expired, delisted, or deactivated.
 - **SC-004**: Operators can initiate, monitor in real time, and interrupt deep crawl runs with 1-click controls from the crawler interface.
 - **SC-005**: Property detail modal loads and renders the complete photo gallery, full description, and features in under 500ms for analyzed properties.
 - **SC-006**: Crawler operates with polite pacing maintaining a zero-blocking rate (no IP or session bans) during regular operation.

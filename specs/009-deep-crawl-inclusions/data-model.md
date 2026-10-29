@@ -15,6 +15,8 @@ Represents real estate listings tracked in the database (`idealista_properties.d
 | `id` | Integer | PK, Auto | Internal primary key |
 | `idealista_id` | String(50) | Unique, Indexed, NOT NULL | Idealista portal listing identifier |
 | `property_url` | String(500) | NOT NULL | Canonical listing web address |
+| `image_url` | String(500) | NULL | Original remote cover image URL on Idealista CDN |
+| `image_data` | Text | NULL | Persistent binary blob (base64 data URI `data:image/jpeg;base64,...`) guaranteeing local preservation upon portal delisting |
 | `detail_status` | String(20) | NOT NULL, Indexed, Default: `'legacy'` | Enum: `'legacy'`, `'pending'`, `'completed'`, `'discarded'` |
 | `detail_updated_at` | DateTime | NULL | Timestamp when snapshot was completed or discarded |
 | `discard_reason` | String(50) | NULL | Enum: `'delisted'`, `'extension_retries_exhausted'`, `'manual_discard'` |
@@ -75,7 +77,7 @@ Stores the full web snapshot captured during deep listing analysis (`property_sn
 
 ### 3. PropertyPhoto (Local Media Entity)
 
-Tracks each individual photo downloaded from the listing gallery (`property_photo` table).
+Tracks each individual photo downloaded from the listing gallery (`property_photo` table). Binary assets are stored locally in the filesystem (`data/media/properties/{idealista_id}/`) and served through `/media/...`. To prevent losing images upon remote delisting, the user interface and APIs MUST serve photos through local endpoints rather than external CDN URLs.
 
 | Field | Type | Constraints | Description |
 |---|---|---|---|

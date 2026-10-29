@@ -138,6 +138,7 @@ Returns the 23 normalized canonical zones across the database with active, sold,
   "increases_count": 13,
   "avg_inc_pct": 5.7,
   "avg_days_to_sell": 67,
+  "avg_m2": 1845,
   "zone_breakdown": [
     {
       "zone": "Los Vadillos - Reyes Católicos",
@@ -145,7 +146,8 @@ Returns the 23 normalized canonical zones across the database with active, sold,
       "sales": 44,
       "avg_days_to_sell": 69,
       "avg_discount_pct": 7.4,
-      "avg_sale_price": 244000
+      "avg_sale_price": 244000,
+      "avg_m2": 2409
     },
     {
       "zone": "Gamonal - San Bruno - G9",
@@ -153,7 +155,8 @@ Returns the 23 normalized canonical zones across the database with active, sold,
       "sales": 48,
       "avg_days_to_sell": 64,
       "avg_discount_pct": 6.2,
-      "avg_sale_price": 161000
+      "avg_sale_price": 161000,
+      "avg_m2": 2006
     }
   ]
 }
