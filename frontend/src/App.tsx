@@ -7,6 +7,7 @@ import { PropertyDetailModal } from './components/modal/PropertyDetailModal';
 import { IntervalSelector } from './components/intervals/IntervalSelector';
 import { IntervalMetricCards } from './components/intervals/IntervalMetricCards';
 import { IntervalZoneTable } from './components/intervals/IntervalZoneTable';
+import { AvailablePropertiesChart } from './components/trends/AvailablePropertiesChart';
 import { PriceEvolutionChart } from './components/trends/PriceEvolutionChart';
 import { DropsVsSalesChart } from './components/trends/DropsVsSalesChart';
 import { CensusTable } from './components/trends/CensusTable';
@@ -313,9 +314,9 @@ export function App() {
     }
   }, [activeTab, fetchIntervalProperties]);
 
-  // Load Market Trends data
+  // Load Market Trends data on mount (or tab activation) for instant rendering
   useEffect(() => {
-    if (activeTab === 'trends' && !marketTrends) {
+    if (!marketTrends) {
       setIsLoadingTrends(true);
       api
         .getMarketTrends()
@@ -323,7 +324,7 @@ export function App() {
         .catch((err) => console.error('Failed to fetch market trends:', err))
         .finally(() => setIsLoadingTrends(false));
     }
-  }, [activeTab, marketTrends]);
+  }, [marketTrends]);
 
   const handleSelectProperty = (prop: Property) => {
     setSelectedProperty(prop);
@@ -571,7 +572,7 @@ export function App() {
                   Evolución Macroeconómica de Precios & Censo de Zonas
                 </h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Curva histórica de €/m², balance mensual de rebajas frente a ventas y censo unificado
+                  Curva de oferta disponible, evolución del €/m², balance mensual de rebajas frente a ventas y censo unificado
                 </p>
               </div>
             </div>
@@ -582,7 +583,8 @@ export function App() {
                 Cargando series históricas de mercado...
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <AvailablePropertiesChart data={marketTrends?.monthly || []} />
                 <PriceEvolutionChart data={marketTrends?.monthly || []} />
                 <DropsVsSalesChart data={marketTrends?.monthly || []} />
               </div>

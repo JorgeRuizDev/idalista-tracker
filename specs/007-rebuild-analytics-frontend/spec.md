@@ -49,17 +49,20 @@ Como analista inmobiliario, quiero disponer de una sección especializada con se
 
 ---
 
-### User Story 3 - Análisis Global de Evolución de Precios y Censo de Zonas (Priority: P3)
+### User Story 3 - Análisis Global de Evolución de Precios, Stock de Oferta y Censo de Zonas (Priority: P3)
 
-Como usuario que sigue el mercado, quiero consultar la evolución temporal agregada del precio del metro cuadrado (€/m²) en la ciudad, el volumen mensual comparativo de rebajas frente a ventas concluidas y una tabla completa con el censo de todas las zonas de la ciudad con datos limpios de la base de datos, para entender la tendencia global sin métricas ficticias ni especulaciones.
+Como usuario que sigue el mercado, quiero consultar la evolución temporal agregada del precio del metro cuadrado (€/m²) en la ciudad, el volumen mensual de viviendas disponibles en oferta activa (evolución del stock de catálogo a lo largo del tiempo), el balance mensual comparativo de rebajas frente a ventas concluidas y una tabla completa con el censo de todas las zonas de la ciudad con datos limpios de la base de datos, para entender la tendencia global y la absorción de oferta sin métricas ficticias ni especulaciones.
 
-**Why this priority**: Completa la visión macro del mercado y permite auditar la totalidad del censo de zonas normalizadas, sirviendo de referencia de precios generales.
+**Why this priority**: Completa la visión macro del mercado y permite auditar la totalidad del censo de zonas normalizadas, sirviendo de referencia de precios generales y ritmo de incorporación/absorción del stock disponible.
 
-**Independent Test**: Puede validarse de forma independiente accediendo a la pestaña de evolución de precios, comprobando que la gráfica muestra la curva mensual del precio por metro cuadrado y que la tabla de censo lista todas las zonas normalizadas con sus totales reales de viviendas activas y vendidas.
+**Independent Test**: Puede validarse de forma independiente accediendo a la pestaña de evolución de precios y tendencias, comprobando que las gráficas muestran la curva mensual de viviendas disponibles activas en oferta, la curva del precio por metro cuadrado y la comparativa de rebajas vs ventas, además de que la tabla de censo lista todas las zonas normalizadas con sus totales reales.
 
 **Acceptance Scenarios**:
 
-1. **Given** la pestaña de evolución de precios, **When** el usuario visualiza la gráfica temporal, **Then** se representa la evolución mes a mes del precio medio por metro cuadrado (€/m²) y la comparativa mensual de rebajas detectadas frente a ventas concluidas.
+1. **Given** la pestaña de tendencias y evolución de precios, **When** el usuario visualiza los gráficos temporales, **Then** se representa:
+   - La evolución mes a mes del stock de viviendas disponibles en el catálogo (`properties_active`), reflejando si el volumen de oferta en mercado crece o decrece temporalmente.
+   - La evolución mes a mes del precio medio por metro cuadrado (€/m²).
+   - La comparativa mensual del recuento de rebajas detectadas frente a ventas concluidas.
 2. **Given** la tabla de censo general por zonas, **When** el usuario revisa el listado, **Then** visualiza cada zona geográfica normalizada con su número total de viviendas, recuento de activas, recuento de vendidas, precio medio, ratio €/m², días medios de venta y porcentaje medio de rebaja acumulada.
 
 ---
@@ -98,7 +101,10 @@ Como usuario que sigue el mercado, quiero consultar la evolución temporal agreg
   5. Tiempo medio en días transcurrido hasta la venta para las viviendas cerradas en ese periodo.
   6. Precio medio por metro cuadrado (€/m²) en las transacciones de venta cerradas en ese periodo.
 - **FR-011**: La sección de auditoría por intervalos DEBE incluir una tabla de desglose territorial que detalle, para cada zona geográfica con transacciones en el periodo: nuevas inclusiones, ventas cerradas, tiempo medio hasta la venta, porcentaje medio de rebaja negociado, precio medio final de transacción y precio medio por metro cuadrado (€/m²).
-- **FR-012**: El sistema DEBE proporcionar una sección de *Evolución de Precios & Mercado* que presente la serie temporal del precio medio por metro cuadrado (€/m²) a lo largo de los meses rastreados y la relación mensual entre rebajas detectadas y ventas concluidas.
+- **FR-012**: El sistema DEBE proporcionar una sección de *Evolución de Precios & Mercado* que presente en series temporales agregadas mes a mes:
+  1. El volumen total de viviendas disponibles (stock de oferta activa en catálogo) en cada periodo mensual analizado.
+  2. El precio medio por metro cuadrado (€/m²) a lo largo de los meses rastreados.
+  3. La relación y contraste mensual entre el número de bajadas de precio detectadas y las ventas concluidas.
 - **FR-013**: La interfaz DEBE omitir cualquier estimación artificial o indicador especulativo no respaldado por transacciones directas, tales como perfiles subjetivos de inversor o rentabilidades brutas estimadas de alquiler.
 - **FR-014**: Al interactuar con cualquier inmueble, el sistema DEBE abrir una vista modal detallada que presente las fotografías del inmueble, características completas, enlace al anuncio de origen y la cronología completa de modificaciones de precio detectadas con fecha, importe previo, importe nuevo y variación porcentual.
 - **FR-015**: La interfaz DEBE ofrecer un conmutador de tema visual (modo oscuro y modo claro) con persistencia de la preferencia del usuario en el navegador.
@@ -125,6 +131,7 @@ Como usuario que sigue el mercado, quiero consultar la evolución temporal agreg
 - **SC-005**: La totalidad de la interfaz de usuario se renderiza en una cuadrícula a pantalla completa sin dependencia de ningún mapa ni bibliotecas de teselas cartográficas.
 - **SC-006**: La aplicación de un filtro combinado (zona + rango de fechas + estado vendido) reduce y presenta los resultados con exactitud matemática verificable frente a los registros del almacén de datos.
 - **SC-007**: El nuevo cliente frontend funciona como una base de código autónoma e independiente, sin importar ni ejecutar ningún archivo de la aplicación frontend previa.
+- **SC-008**: La gráfica de evolución de viviendas disponibles representa fielmente el recuento mensual de inmuebles en oferta activa proporcionado por el servicio de tendencias del backend (`properties_active`), actualizándose de forma coordinada con el resto de series temporales.
 
 ---
 
