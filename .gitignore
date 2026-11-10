@@ -63,6 +63,7 @@ data/media/properties/*
 # Node.js / Extension
 extension/node_modules/
 extension/dist/
+extension/*.zip
 extension/.env*
 extension/*.log
 extension/coverage/

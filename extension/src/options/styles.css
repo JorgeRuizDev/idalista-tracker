@@ -30,8 +30,66 @@ header {
   color: white;
 }
 
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 header h1 {
   font-size: 24px;
+  font-weight: 600;
+}
+
+.header-metadata {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.badge-version {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.build-timestamp {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: monospace;
+}
+
+/* Status Summary Card */
+.status-summary-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.status-summary-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.status-summary-val {
+  color: #1e293b;
   font-weight: 600;
 }
 

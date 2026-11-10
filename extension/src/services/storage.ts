@@ -1,5 +1,16 @@
 // Chrome Storage API wrapper
-import type { CrawlConfig, CrawlState, SavedSearch } from '../types';
+import type { CrawlConfig, CrawlState, SavedSearch, LastCrawlStats } from '../types';
+
+export const DEFAULT_CONFIG: CrawlConfig = {
+  server_url: 'http://localhost:8050',
+  human_like_enabled: true,
+  min_page_delay: 2000,
+  max_page_delay: 2000,
+  min_navigation_delay: 3000,
+  max_navigation_delay: 6000,
+  auto_crawl_enabled: false,
+  auto_crawl_interval_hours: 24,
+};
 
 const STORAGE_KEYS = {
   CONFIG: 'config',
@@ -14,7 +25,13 @@ const STORAGE_KEYS = {
  */
 export async function getConfig(): Promise<CrawlConfig | null> {
   const { config } = await chrome.storage.local.get(STORAGE_KEYS.CONFIG);
-  return config || null;
+  if (!config) {
+    return { ...DEFAULT_CONFIG };
+  }
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+  };
 }
 
 /**
@@ -95,26 +112,14 @@ export async function clearFailedBatches(): Promise<void> {
 /**
  * Save last crawl statistics
  */
-export async function saveLastCrawlStats(stats: {
-  sessionId: number;
-  totalProperties: number;
-  pagesProcessed: number;
-  searchesCrawled: number;
-  completedAt: number;
-}): Promise<void> {
+export async function saveLastCrawlStats(stats: LastCrawlStats): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.LAST_CRAWL_STATS]: stats });
 }
 
 /**
  * Get last crawl statistics
  */
-export async function getLastCrawlStats(): Promise<{
-  sessionId: number;
-  totalProperties: number;
-  pagesProcessed: number;
-  searchesCrawled: number;
-  completedAt: number;
-} | null> {
+export async function getLastCrawlStats(): Promise<LastCrawlStats | null> {
   const { lastCrawlStats } = await chrome.storage.local.get(STORAGE_KEYS.LAST_CRAWL_STATS);
   return lastCrawlStats || null;
 }

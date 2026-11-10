@@ -18,8 +18,27 @@ const API_VERSION = 'v1';
  */
 async function getApiBaseUrl(): Promise<string> {
   const { config } = await chrome.storage.local.get('config');
-  const baseUrl = config?.server_url || 'http://localhost:8000';
+  const baseUrl = config?.server_url || 'http://localhost:8050';
   return `${baseUrl}/api/${API_VERSION}`;
+}
+
+/**
+ * Check backend health status (/health)
+ */
+export async function checkBackendHealth(serverUrl?: string): Promise<boolean> {
+  try {
+    let baseUrl = serverUrl;
+    if (!baseUrl) {
+      const { config } = await chrome.storage.local.get('config');
+      baseUrl = config?.server_url || 'http://localhost:8050';
+    }
+    const res = await fetch(`${baseUrl}/health`, { method: 'GET' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.status === 'healthy';
+  } catch (_) {
+    return false;
+  }
 }
 
 /**

@@ -9,7 +9,13 @@
 <body>
   <div class="container">
     <header>
-      <h1>Idalista Crawler Settings</h1>
+      <div class="header-content">
+        <h1>Idalista Crawler Settings</h1>
+        <div class="header-metadata">
+          <span class="badge-version" id="extension-version">v1.0.0</span>
+          <span class="build-timestamp" id="header-build-time" title="Build timestamp">Build: --</span>
+        </div>
+      </div>
     </header>
 
     <main>
@@ -19,7 +25,7 @@
           <div class="form-group">
             <label for="server-url">Server URL</label>
             <input type="url" id="server-url" name="server_url" 
-                   placeholder="http://localhost:8000" required>
+                   placeholder="http://localhost:8050" required>
             <p class="help-text">The URL of your Idalista backend API</p>
           </div>
         </section>
@@ -61,6 +67,42 @@
                 <input type="number" id="max-navigation-delay" name="max_navigation_delay" 
                        min="1" max="120" value="6" required>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Automated Background Crawl</h2>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="auto-crawl-enabled" name="auto_crawl_enabled">
+              Enable automated background crawl
+            </label>
+            <p class="help-text">Periodically crawls active saved searches in the background without stealing focus</p>
+          </div>
+
+          <div class="form-group" id="auto-crawl-settings">
+            <label for="auto-crawl-interval">Interval (hours)</label>
+            <input type="number" id="auto-crawl-interval" name="auto_crawl_interval_hours" 
+                   min="1" max="168" value="24" required>
+            <p class="help-text">Hours between crawls since last complete run (manual or automatic). Default: 24h</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>Version & Update Status</h2>
+          <div class="status-summary-card">
+            <div class="status-summary-row">
+              <span class="status-summary-label">Extension Version:</span>
+              <strong class="status-summary-val" id="info-extension-version">--</strong>
+            </div>
+            <div class="status-summary-row">
+              <span class="status-summary-label">Build Date & Hour:</span>
+              <strong class="status-summary-val" id="info-build-time">--</strong>
+            </div>
+            <div class="status-summary-row">
+              <span class="status-summary-label">Last Crawl Update:</span>
+              <strong class="status-summary-val" id="info-last-crawl">Checking...</strong>
             </div>
           </div>
         </section>

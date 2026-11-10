@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Idalista Property Crawler",
   "version": "1.0.0",
+  "version_name": "1.0.0",
   "description": "Crawl property listings from Idealista and track changes over time",
   "default_locale": "en",
   "permissions": [
@@ -9,11 +10,13 @@
     "activeTab",
     "scripting",
     "tabs",
-    "alarms"
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "https://www.idealista.com/*",
-    "http://localhost:8000/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js",

@@ -26,8 +26,8 @@ Before you start, make sure you have:
    - The extension uses Manifest V3
 
 4. **Backend API Running**
-   - The FastAPI backend must be running at `http://localhost:8000`
-   - See main project README for backend setup
+   - The FastAPI backend must be running at `http://localhost:8050`
+   - See main project README and docker-compose setup
 
 ## Quick Start
 
@@ -150,7 +150,7 @@ npm run format
 1. Click the extension icon in Chrome toolbar
 2. Click **"Settings"** link at the bottom
 3. Configure:
-   - **Server URL**: `http://localhost:8000` (default)
+   - **Server URL**: `http://localhost:8050` (default)
    - **Human-like behavior**: Enable for realistic delays
    - **Delay settings**: Adjust wait times between pages
 
@@ -233,7 +233,7 @@ npm install
 **Solutions**:
 1. **Verify backend is running**:
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:8050/health
    ```
    Should return: `{"status": "healthy", ...}`
 
@@ -246,7 +246,8 @@ npm install
    ```json
    "host_permissions": [
      "https://www.idealista.com/*",
-     "http://localhost:8000/*"
+     "http://localhost:8050/*",
+     "http://localhost/*"
    ]
    ```
 

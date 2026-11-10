@@ -9,6 +9,7 @@ import type {
   SaveSearchesResponse,
   ExtractedSavedSearch,
 } from '../types';
+import * as storage from '../services/storage';
 
 // Content script response type
 interface ExtractSearchesResponse {
@@ -18,6 +19,7 @@ interface ExtractSearchesResponse {
 
 // DOM Elements
 const searchesListEl = document.getElementById('searches-list') as HTMLDivElement;
+const toggleAllSearchesBtn = document.getElementById('toggle-all-searches') as HTMLButtonElement | null;
 const refreshBtn = document.getElementById('refresh-searches') as HTMLButtonElement;
 const syncBtn = document.getElementById('sync-searches') as HTMLButtonElement;
 const startCrawlBtn = document.getElementById('start-crawl') as HTMLButtonElement;
@@ -47,10 +49,62 @@ let selectedSearchIds: number[] = [];
 let isServerOnline = false;
 let currentConfig: { server_url: string } | null = null;
 
+/**
+ * Update popup version, build time, and last crawl stats
+ */
+async function updatePopupMetadata(): Promise<void> {
+  const versionBadge = document.getElementById('popup-version-badge');
+  const buildTimeEl = document.getElementById('popup-build-time');
+  const lastCrawlEl = document.getElementById('popup-last-crawl');
+
+  let versionStr = typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : '1.0.0';
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) {
+    const manifest = chrome.runtime.getManifest();
+    if (manifest.version_name) {
+      versionStr = manifest.version_name;
+    } else if (manifest.version) {
+      versionStr = typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : manifest.version;
+    }
+  }
+
+  if (versionBadge) {
+    versionBadge.textContent = `v${versionStr}`;
+  }
+
+  if (buildTimeEl) {
+    let buildFormatted = versionStr;
+    try {
+      if (typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__) {
+        const d = new Date(__BUILD_TIME__);
+        buildFormatted = `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+    } catch (_) {
+      // ignore
+    }
+    buildTimeEl.textContent = buildFormatted;
+  }
+
+  if (lastCrawlEl) {
+    try {
+      const stats = await storage.getLastCrawlStats();
+      if (stats && stats.completedAt) {
+        const d = new Date(stats.completedAt);
+        const trigger = stats.trigger === 'automatic' ? 'Auto' : 'Manual';
+        const dateStr = `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        lastCrawlEl.textContent = `${dateStr} (${trigger}) • ${stats.totalProperties} props`;
+      } else {
+        lastCrawlEl.textContent = 'Ninguno';
+      }
+    } catch (e) {
+      lastCrawlEl.textContent = 'No disponible';
+    }
+  }
+}
+
 // Initialize popup
-document.addEventListener('DOMContentLoaded', () => {
+function initPopup(): void {
   console.log('Popup opened');
-  
+  updatePopupMetadata();
   addLogEntry('Extension loaded', 'info');
   
   // Load initial data asynchronously (don't block)
@@ -79,6 +133,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Set up event listeners
   refreshBtn.addEventListener('click', loadSearches);
   syncBtn.addEventListener('click', syncSearchesFromIdealista);
+  toggleAllSearchesBtn?.addEventListener('click', async () => {
+    if (searches.length === 0) return;
+    const shouldEnable = searches.some(s => !s.crawl_enabled);
+    searches.forEach(s => {
+      s.crawl_enabled = shouldEnable;
+    });
+    selectedSearchIds = shouldEnable ? searches.map(s => s.id) : [];
+    startCrawlBtn.disabled = selectedSearchIds.length === 0 || !isServerOnline;
+
+    try {
+      await storage.saveSavedSearches(searches);
+    } catch (err) {
+      console.error('Failed to persist all searches selection:', err);
+    }
+
+    renderSearches(searches);
+    addLogEntry(
+      shouldEnable
+        ? `Todas las búsquedas marcadas (${searches.length}) para rastreo automático/manual`
+        : 'Todas las búsquedas desmarcadas',
+      'info'
+    );
+  });
   startCrawlBtn.addEventListener('click', startCrawl);
   startDetailCrawlBtn?.addEventListener('click', startDetailCrawl);
   refreshPendingBtn?.addEventListener('click', refreshPendingCount);
@@ -95,7 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
       handleDetailProgressUpdate(message.progress);
     }
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPopup);
+} else {
+  initPopup();
+}
 
 // Add log entry
 function addLogEntry(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
@@ -327,6 +410,18 @@ async function syncSearchesFromIdealista(): Promise<void> {
   }
 }
 
+function updateToggleAllBtnState(): void {
+  if (!toggleAllSearchesBtn) return;
+  if (searches.length === 0) {
+    toggleAllSearchesBtn.disabled = true;
+    toggleAllSearchesBtn.textContent = 'Marcar todas';
+    return;
+  }
+  toggleAllSearchesBtn.disabled = false;
+  const anyUnchecked = searches.some(s => !s.crawl_enabled);
+  toggleAllSearchesBtn.textContent = anyUnchecked ? 'Marcar todas' : 'Desmarcar todas';
+}
+
 // Render searches list
 function renderSearches(searchesData: SavedSearch[]): void {
   console.log('Rendering searches:', searchesData);
@@ -340,12 +435,13 @@ function renderSearches(searchesData: SavedSearch[]): void {
         Visit <a href="https://www.idealista.com/usuario/tus-alertas" target="_blank">Idealista Saved Searches</a>
       </p>
     `;
+    updateToggleAllBtnState();
     return;
   }
   
   searchesListEl.innerHTML = searches.map(search => `
     <div class="search-item">
-      <label class="search-label">
+      <label class="search-label" title="${search.crawl_enabled ? 'Activada para rastreo automático y manual' : 'Desactivada de rastreo'}">
         <input type="checkbox" value="${search.id}" ${search.crawl_enabled ? 'checked' : ''}>
         <span class="search-name">${escapeHtml(search.name)}</span>
         <span class="search-count">${search.result_count || 0} properties</span>
@@ -355,12 +451,19 @@ function renderSearches(searchesData: SavedSearch[]): void {
   
   // Add change listeners
   searchesListEl.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-    checkbox.addEventListener('change', (e) => {
+    checkbox.addEventListener('change', async (e) => {
       const target = e.target as HTMLInputElement;
       const id = parseInt(target.value, 10);
       
+      const search = searches.find(s => s.id === id);
+      if (search) {
+        search.crawl_enabled = target.checked;
+      }
+
       if (target.checked) {
-        selectedSearchIds.push(id);
+        if (!selectedSearchIds.includes(id)) {
+          selectedSearchIds.push(id);
+        }
       } else {
         selectedSearchIds = selectedSearchIds.filter(sid => sid !== id);
       }
@@ -368,14 +471,24 @@ function renderSearches(searchesData: SavedSearch[]): void {
       // Enable/disable crawl button based on selection and server status
       startCrawlBtn.disabled = selectedSearchIds.length === 0 || !isServerOnline;
       
-      const searchName = searches.find(s => s.id === id)?.name || 'Unknown';
-      addLogEntry(`${target.checked ? 'Selected' : 'Deselected'}: ${searchName}`, 'info');
+      // Persist selection so background automated crawls and future popup openings remember it
+      try {
+        await storage.saveSavedSearches(searches);
+      } catch (err) {
+        console.error('Failed to save search selection:', err);
+      }
+
+      updateToggleAllBtnState();
+
+      const searchName = search?.name || 'Unknown';
+      addLogEntry(`${target.checked ? 'Marcada para rastreo' : 'Desmarcada'}: ${searchName}`, 'info');
     });
   });
   
   // Initialize selected IDs
   selectedSearchIds = searches.filter(s => s.crawl_enabled).map(s => s.id);
   startCrawlBtn.disabled = selectedSearchIds.length === 0 || !isServerOnline;
+  updateToggleAllBtnState();
 }
 
 // Update crawl status

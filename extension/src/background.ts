@@ -1,34 +1,245 @@
 // Background service worker for crawl orchestration
-import type { CrawlConfig, CrawlState, SavedSearch, ExtractedSavedSearch } from './types';
+import type {
+  CrawlConfig,
+  CrawlState,
+  SavedSearch,
+  ExtractedSavedSearch,
+  ActiveChallengeState,
+  ChallengeDetectedPayload,
+  CheckAutoCrawlPayload,
+  CheckAutoCrawlResponse,
+} from './types';
 import * as crawler from './services/crawler';
 import * as storage from './services/storage';
 import * as api from './services/api';
 import { runFallbackDetailCrawlCycle } from './services/detail_crawler';
 
-// Initialize extension on install
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('Idalista Property Crawler installed');
-  
-  // Set default configuration
-  const defaultConfig: CrawlConfig = {
-    server_url: 'http://localhost:8000',
-    human_like_enabled: true,
-    min_page_delay: 2000,
-    max_page_delay: 2000,
-    min_navigation_delay: 3000,
-    max_navigation_delay: 6000,
-  };
-  
-  chrome.storage.local.set({ config: defaultConfig });
+// In-memory active challenge registry
+const activeChallenges = new Map<number, ActiveChallengeState>();
 
-  // Clear any legacy alarms to avoid unwanted automatic tabs
-  if (chrome.alarms) {
-    chrome.alarms.clearAll();
+export function _resetChallengeStateForTesting(): void {
+  activeChallenges.clear();
+}
+
+export function getActiveChallenge(tabId: number): ActiveChallengeState | null {
+  return activeChallenges.get(tabId) || null;
+}
+
+/**
+ * Dispatch desktop notification when anti-bot challenge is detected
+ */
+export async function handleChallengeNotification(
+  payload: ChallengeDetectedPayload
+): Promise<string> {
+  const notificationId = `challenge-${payload.tab_id}-${Date.now()}`;
+  let windowId = 0;
+
+  try {
+    if (chrome.tabs && chrome.tabs.get) {
+      const tab = await chrome.tabs.get(payload.tab_id);
+      windowId = tab?.windowId || 0;
+    }
+  } catch (_) {}
+
+  const state: ActiveChallengeState = {
+    tabId: payload.tab_id,
+    windowId,
+    notificationId,
+    detectedAt: Date.now(),
+    stage: payload.stage,
+    url: payload.url,
+    resolved: false,
+  };
+
+  activeChallenges.set(payload.tab_id, state);
+
+  if (chrome.notifications && chrome.notifications.create) {
+    await chrome.notifications.create(notificationId, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Idalista Tracker: Verificación humana requerida',
+      message: 'Se ha detectado un reto anti-bot. Haz clic aquí para resolverlo y reanudar el rastreo.',
+      requireInteraction: true,
+      priority: 2,
+    });
   }
-});
+
+  return notificationId;
+}
+
+/**
+ * Handle notification click: focus window and challenge tab, dismiss notification
+ */
+export async function handleNotificationClick(notificationId: string): Promise<void> {
+  let matchedTabId: number | null = null;
+  let matchedChallenge: ActiveChallengeState | null = null;
+
+  for (const [tabId, challenge] of activeChallenges.entries()) {
+    if (challenge.notificationId === notificationId) {
+      matchedTabId = tabId;
+      matchedChallenge = challenge;
+      break;
+    }
+  }
+
+  if (matchedChallenge) {
+    try {
+      if (matchedChallenge.windowId && chrome.windows?.update) {
+        await chrome.windows.update(matchedChallenge.windowId, { focused: true });
+      }
+      if (chrome.tabs?.update) {
+        await chrome.tabs.update(matchedChallenge.tabId, { active: true });
+      }
+    } catch (err) {
+      console.warn('Failed to focus challenge window/tab:', err);
+    }
+  }
+
+  if (chrome.notifications?.clear) {
+    await chrome.notifications.clear(notificationId);
+  }
+}
+
+/**
+ * Dismiss challenge notification and state when resolved
+ */
+export async function dismissChallengeNotification(tabId: number): Promise<void> {
+  const challenge = activeChallenges.get(tabId);
+  if (challenge) {
+    if (chrome.notifications?.clear) {
+      await chrome.notifications.clear(challenge.notificationId);
+    }
+    activeChallenges.delete(tabId);
+  }
+}
+
+export const AUTO_CRAWL_SCHEDULE_ALARM = 'AUTO_CRAWL_SCHEDULE_ALARM';
+
+/**
+ * Configure periodic alarm for background crawl evaluation
+ */
+export async function setupAutoCrawlAlarm(enabled: boolean): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.alarms) return;
+
+  if (enabled) {
+    chrome.alarms.create(AUTO_CRAWL_SCHEDULE_ALARM, {
+      periodInMinutes: 30,
+    });
+    console.log('[AutoCrawl] Periodic alarm configured (every 30m).');
+  } else {
+    chrome.alarms.clear(AUTO_CRAWL_SCHEDULE_ALARM);
+    console.log('[AutoCrawl] Periodic alarm cleared.');
+  }
+}
+
+/**
+ * Evaluate automated background crawl condition based on schedule, flags, and connectivity
+ */
+export async function evaluateAutoCrawlCondition(
+  payload?: CheckAutoCrawlPayload
+): Promise<CheckAutoCrawlResponse> {
+  const config = await storage.getConfig();
+  if (!config || !config.auto_crawl_enabled) {
+    return { triggered: false, reason: 'disabled' };
+  }
+
+  const crawlState = await storage.getCrawlState();
+  if (crawlState && crawlState.is_running) {
+    console.log('[AutoCrawl] Crawl already running. Skipping automatic trigger.');
+    return { triggered: false, reason: 'running' };
+  }
+
+  const lastStats = await storage.getLastCrawlStats();
+  const intervalHours = config.auto_crawl_interval_hours || 24;
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+  const completedAt = lastStats?.completedAt || 0;
+  const elapsedMs = Date.now() - completedAt;
+
+  if (!payload?.forced && completedAt > 0 && elapsedMs < intervalMs) {
+    console.log(
+      `[AutoCrawl] Interval not elapsed: ${Math.round(elapsedMs / 3600000)}h / ${intervalHours}h elapsed.`
+    );
+    return {
+      triggered: false,
+      reason: 'interval_not_elapsed',
+      elapsed_ms: elapsedMs,
+      interval_ms: intervalMs,
+    };
+  }
+
+  // Check backend connectivity
+  const isHealthy = await api.checkBackendHealth(config.server_url);
+  if (!isHealthy) {
+    console.warn('[AutoCrawl] Backend server unreachable. Deferring crawl and alerting user.');
+    if (typeof chrome !== 'undefined' && chrome.notifications?.create) {
+      await chrome.notifications.create(`backend-offline-${Date.now()}`, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: 'Idalista Tracker: Servidor no disponible',
+        message: 'No se pudo conectar con el servidor local para el rastreo automático programado. Se reintentará en el próximo ciclo.',
+      });
+    }
+    return { triggered: false, reason: 'backend_offline' };
+  }
+
+  // Get active saved searches
+  const searches = await storage.getSavedSearches();
+  const activeSearches = searches.filter(s => s.crawl_enabled);
+  if (activeSearches.length === 0) {
+    console.log('[AutoCrawl] No enabled searches found for automated crawl.');
+    return { triggered: false, reason: 'no_searches' };
+  }
+
+  console.log(
+    `[AutoCrawl] Starting automated background crawl for ${activeSearches.length} searches (interval: ${intervalHours}h)...`
+  );
+  addLogEntry(
+    `[AutoCrawl] Starting automated background crawl (${activeSearches.length} searches)`,
+    'info'
+  );
+
+  const result = await crawler.startCrawl(
+    activeSearches.map(s => s.id),
+    config.server_url,
+    'automatic'
+  );
+
+  return { triggered: result.success, reason: result.success ? 'started' : 'disabled' };
+}
+
+// Notification click listener
+if (typeof chrome !== 'undefined' && chrome.notifications?.onClicked) {
+  chrome.notifications.onClicked.addListener((notificationId) => {
+    handleNotificationClick(notificationId).catch(console.error);
+  });
+}
+
+// Alarm listener for periodic schedule evaluation
+if (typeof chrome !== 'undefined' && chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === AUTO_CRAWL_SCHEDULE_ALARM) {
+      console.log('[AutoCrawl] Alarm triggered, evaluating schedule condition...');
+      evaluateAutoCrawlCondition().catch(console.error);
+    }
+  });
+}
+
+// Initialize extension on install
+if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
+  chrome.runtime.onInstalled.addListener(async () => {
+    console.log('Idalista Property Crawler installed');
+    const existing = await storage.getConfig();
+    if (!existing) {
+      await storage.saveConfig(storage.DEFAULT_CONFIG);
+    }
+    const config = await storage.getConfig();
+    await setupAutoCrawlAlarm(Boolean(config?.auto_crawl_enabled));
+  });
+}
 
 // Handle messages from popup and content scripts
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Background received message:', message.type, message);
   
   if (!message.type) {
@@ -100,6 +311,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
+    case 'CHALLENGE_DETECTED':
+      handleChallengeNotification(message.payload)
+        .then(notificationId => sendResponse({ success: true, notificationId }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'DISMISS_CHALLENGE':
+      dismissChallengeNotification(message.payload?.tab_id)
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'CHECK_AUTO_CRAWL':
+      evaluateAutoCrawlCondition(message.payload)
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ triggered: false, reason: error.message }));
+      return true;
+
     case 'SAVE_CONFIG':
       handleSaveConfig(message.payload)
         .then(response => sendResponse(response))
@@ -122,7 +351,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('Unknown message type received:', message.type, message);
       sendResponse({ error: `Unknown message type: ${message.type}` });
   }
-});
+  });
+}
 
 // Handle start crawl - now uses the actual crawler service
 async function handleStartCrawl(payload: { search_ids: number[]; server_url: string }) {
@@ -338,6 +568,7 @@ async function handleSyncSearches() {
 async function handleSaveConfig(config: CrawlConfig) {
   try {
     await storage.saveConfig(config);
+    await setupAutoCrawlAlarm(Boolean(config.auto_crawl_enabled));
     addLogEntry('Configuration saved', 'info');
     return { success: true };
   } catch (error) {
@@ -350,16 +581,13 @@ async function handleGetConfig() {
   try {
     const config = await storage.getConfig();
     
-    const defaultConfig: CrawlConfig = {
-      server_url: 'http://localhost:8000',
-      human_like_enabled: true,
-      min_page_delay: 2000,
-      max_page_delay: 2000,
-      min_navigation_delay: 3000,
-      max_navigation_delay: 6000,
-    };
-    
-    return { config: config || defaultConfig };
+    // Auto-migrate legacy default port 8000 to 8050
+    if (config && config.server_url === 'http://localhost:8000') {
+      config.server_url = 'http://localhost:8050';
+      await storage.saveConfig(config);
+    }
+
+    return { config: config || storage.DEFAULT_CONFIG };
   } catch (error) {
     return { config: null, error: (error as Error).message };
   }
@@ -372,12 +600,17 @@ function addLogEntry(message: string, type: 'info' | 'success' | 'warning' | 'er
 }
 
 // Check for resume on startup
-chrome.runtime.onStartup.addListener(async () => {
-  const state = await storage.getCrawlState();
-  
-  if (state && state.is_running) {
-    console.log('Found running crawl session on startup:', state.session_id);
-    addLogEntry(`Found running session ${state.session_id} on startup`, 'info');
-    // The crawler will handle resume internally when called
-  }
-});
+if (typeof chrome !== 'undefined' && chrome.runtime?.onStartup) {
+  chrome.runtime.onStartup.addListener(async () => {
+    const state = await storage.getCrawlState();
+    
+    if (state && state.is_running) {
+      console.log('Found running crawl session on startup:', state.session_id);
+      addLogEntry(`Found running session ${state.session_id} on startup`, 'info');
+      // The crawler will handle resume internally when called
+    } else {
+      // Evaluate automated background crawl schedule on browser launch
+      evaluateAutoCrawlCondition().catch(console.error);
+    }
+  });
+}

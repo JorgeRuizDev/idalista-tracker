@@ -318,6 +318,12 @@ class SavedSearchResponse(SavedSearchBase):
     last_crawled_at: Optional[datetime] = None
 
 
+class SavedSearchListResponse(BaseModel):
+    """Response schema for list of saved searches."""
+
+    searches: List[SavedSearchResponse]
+
+
 class SavedSearchSyncRequest(BaseModel):
     """Request schema for syncing saved searches from extension."""
 

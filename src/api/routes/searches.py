@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies import get_db
 from src.api.schemas import (
+    SavedSearchListResponse,
     SavedSearchResponse,
     SavedSearchSyncRequest,
     SavedSearchSyncResponse,
@@ -15,15 +16,17 @@ from src.services import saved_search_service
 router = APIRouter(prefix="/searches", tags=["searches"])
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=SavedSearchListResponse)
 def get_saved_searches(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-) -> dict:
+) -> SavedSearchListResponse:
     """Get all saved searches."""
     searches = saved_search_service.get_saved_searches(db, skip=skip, limit=limit)
-    return {"searches": searches}
+    return SavedSearchListResponse(
+        searches=[SavedSearchResponse.model_validate(s) for s in searches]
+    )
 
 
 @router.post("/sync", response_model=SavedSearchSyncResponse)

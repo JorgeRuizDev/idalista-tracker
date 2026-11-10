@@ -55,6 +55,29 @@ export interface CrawlConfig {
   max_page_delay: number;
   min_navigation_delay: number;
   max_navigation_delay: number;
+  auto_crawl_enabled: boolean;
+  auto_crawl_interval_hours: number;
+}
+
+/** Last completed crawl statistics */
+export interface LastCrawlStats {
+  sessionId: number;
+  totalProperties: number;
+  pagesProcessed: number;
+  searchesCrawled: number;
+  completedAt: number;
+  trigger: 'manual' | 'automatic';
+}
+
+/** Active bot challenge state */
+export interface ActiveChallengeState {
+  tabId: number;
+  windowId: number;
+  notificationId: string;
+  detectedAt: number;
+  stage: 'search' | 'detail';
+  url: string;
+  resolved: boolean;
 }
 
 /** Batch ingestion request payload */
@@ -149,7 +172,32 @@ export type MessageType =
   | 'SAVE_SEARCHES'
   | 'SYNC_SEARCHES'
   | 'SAVE_CONFIG'
-  | 'GET_CONFIG';
+  | 'GET_CONFIG'
+  | 'CHECK_AUTO_CRAWL'
+  | 'CHALLENGE_DETECTED'
+  | 'DETAIL_CRAWL_PROGRESS'
+  | 'RUN_DETAIL_FALLBACK_CRAWL'
+  | 'GET_PENDING_DETAILS_COUNT'
+  | 'START_DETAIL_CRAWL_ONLY';
+
+/** Automation & Challenge Message Payloads */
+export interface CheckAutoCrawlPayload {
+  forced?: boolean;
+}
+
+export interface CheckAutoCrawlResponse {
+  triggered: boolean;
+  reason?: 'disabled' | 'running' | 'interval_not_elapsed' | 'no_searches' | 'started' | 'backend_offline';
+  elapsed_ms?: number;
+  interval_ms?: number;
+}
+
+export interface ChallengeDetectedPayload {
+  stage: 'search' | 'detail';
+  tab_id: number;
+  url: string;
+  reason: 'cloudflare_turnstile' | 'captcha' | 'antibot_block';
+}
 
 /** Base message interface */
 export interface BaseMessage {

@@ -3,6 +3,7 @@ import type { CrawlConfig, CrawlState, SavedSearch, Property, PaginationInfo } f
 import * as storage from './storage';
 import * as api from './api';
 import { runFullPendingDetailQueue } from './detail_crawler';
+import { inspectPageChallengeInBrowser } from '../utils/challenge';
 
 // Crawl state
 let isRunning = false;
@@ -10,17 +11,44 @@ let currentSessionId: number | null = null;
 let currentSearchIndex = 0;
 let selectedSearches: SavedSearch[] = [];
 let abortController: AbortController | null = null;
+let crawlTabId: number | null = null;
+let currentTrigger: 'manual' | 'automatic' = 'manual';
+
+export function _getCrawlTabIdForTesting(): number | null {
+  return crawlTabId;
+}
+
+export function _setCrawlTabIdForTesting(id: number | null): void {
+  crawlTabId = id;
+}
+
+/**
+ * Close dedicated search crawl tab cleanly
+ */
+export async function closeCrawlTab(): Promise<void> {
+  if (crawlTabId !== null) {
+    try {
+      await chrome.tabs.remove(crawlTabId);
+    } catch (_) {
+      // Tab may already have been closed
+    } finally {
+      crawlTabId = null;
+    }
+  }
+}
 
 /**
  * Start a new crawl session
  */
 export async function startCrawl(
   searchIds: number[],
-  serverUrl: string
+  serverUrl: string,
+  trigger: 'manual' | 'automatic' = 'manual'
 ): Promise<{ success: boolean; session_id?: number; error?: string }> {
   if (isRunning) {
     return { success: false, error: 'Crawl already running' };
   }
+  currentTrigger = trigger;
   
   try {
     // Get searches from local storage (where they were saved from the page)
@@ -95,6 +123,7 @@ export async function pauseCrawl(): Promise<{ success: boolean; can_resume: bool
   
   abortController?.abort();
   isRunning = false;
+  await closeCrawlTab();
   
   // Update state
   const state = await storage.getCrawlState();
@@ -205,6 +234,9 @@ async function crawlLoop(): Promise<void> {
     }
   }
 
+  // Close dedicated search crawl tab before moving to deep detail analysis
+  await closeCrawlTab();
+
   // Stage 2: Deep Analysis of Pending Listings & New Inclusions
   if (isRunning && !abortController?.signal.aborted) {
     console.log('[Crawler] Chaining to Stage 2: Deep Analysis of pending listings and new inclusions...');
@@ -249,8 +281,23 @@ async function crawlLoop(): Promise<void> {
     await storage.saveCrawlState(finalState);
   }
 
+  // Update lastCrawlStats with completedAt and trigger to reset schedule countdown
+  try {
+    await storage.saveLastCrawlStats({
+      sessionId: currentSessionId || 0,
+      totalProperties: finalState?.progress?.total_properties || 0,
+      pagesProcessed: finalState?.progress?.total_pages || 0,
+      searchesCrawled: finalState?.progress?.completed_searches || 0,
+      completedAt: Date.now(),
+      trigger: currentTrigger,
+    });
+  } catch (err) {
+    console.warn('Failed to save last crawl stats:', err);
+  }
+
   currentSessionId = null;
   currentSearchIndex = 0;
+  await closeCrawlTab();
 
   console.log('Crawl loop ended');
 }
@@ -316,6 +363,115 @@ export async function startDetailCrawlOnly(): Promise<{ success: boolean; error?
 }
 
 /**
+ * Inspect search page tab for anti-bot challenges, bring to focus, and await human resolution.
+ */
+export async function checkAndHandleSearchChallenge(tabId: number, url: string): Promise<boolean> {
+  let isChallenge = false;
+  let reason: 'cloudflare_turnstile' | 'captcha' | 'antibot_block' = 'antibot_block';
+
+  try {
+    if (chrome.scripting && chrome.scripting.executeScript) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: inspectPageChallengeInBrowser,
+      });
+      if (results && results[0]?.result?.isChallenge) {
+        isChallenge = true;
+        reason = results[0].result.reason || 'antibot_block';
+      }
+    }
+  } catch (err) {
+    // In transition or scripts not ready
+  }
+
+  if (!isChallenge) {
+    return false;
+  }
+
+  console.warn(`[SearchCrawler] Bot challenge detected on search tab ${tabId}. Bringing to focus and notifying user.`);
+
+  // Bring tab and window to user focus
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo?.windowId && chrome.windows?.update) {
+      await chrome.windows.update(tabInfo.windowId, { focused: true });
+    }
+  } catch (_) {}
+
+  // Update crawl state stage to 'paused_challenge'
+  const state = await storage.getCrawlState();
+  if (state) {
+    state.stage = 'paused_challenge';
+    await storage.saveCrawlState(state);
+  }
+
+  // Dispatch desktop notification
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      await chrome.runtime.sendMessage({
+        type: 'CHALLENGE_DETECTED',
+        payload: {
+          stage: 'search',
+          tab_id: tabId,
+          url,
+          reason,
+        },
+      });
+    }
+  } catch (_) {}
+
+  // Poll until challenge is solved or timeout (5-minute safety timeout)
+  const maxWaitMs = 300000;
+  const pollIntervalMs = 2000;
+  const startTime = Date.now();
+  let solved = false;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    if (!isRunning || abortController?.signal.aborted) break;
+    await sleep(pollIntervalMs);
+
+    try {
+      if (chrome.scripting && chrome.scripting.executeScript) {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: inspectPageChallengeInBrowser,
+        });
+        if (results && !results[0]?.result?.isChallenge) {
+          solved = true;
+          break;
+        }
+      }
+    } catch (_) {
+      break;
+    }
+  }
+
+  // Dismiss notification
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      await chrome.runtime.sendMessage({
+        type: 'DISMISS_CHALLENGE',
+        payload: { tab_id: tabId },
+      });
+    }
+  } catch (_) {}
+
+  if (solved) {
+    console.log(`[SearchCrawler] Challenge resolved! Resuming search crawl.`);
+    const resumeState = await storage.getCrawlState();
+    if (resumeState) {
+      resumeState.stage = 'discovery';
+      await storage.saveCrawlState(resumeState);
+    }
+    return true;
+  } else {
+    console.warn(`[SearchCrawler] Challenge timed out or aborted.`);
+    return false;
+  }
+}
+
+/**
  * Crawl a single search
  */
 async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Promise<void> {
@@ -360,6 +516,15 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
 
     // Wait a bit more for content script to be ready
     await sleep(1000);
+
+    // Check for anti-bot challenge on search page
+    const challengeHandled = await checkAndHandleSearchChallenge(tab.id, currentUrl);
+    if (!isRunning || abortController?.signal.aborted) {
+      break;
+    }
+    if (challengeHandled) {
+      await sleep(1500);
+    }
 
     // Extract listings
     let pageData;
@@ -444,9 +609,9 @@ async function crawlSearch(search: SavedSearch, config: CrawlConfig | null): Pro
 }
 
 /**
- * Navigate to URL in a new or existing tab
+ * Navigate to URL in dedicated inactive background tab
  */
-async function navigateToUrl(url: string): Promise<chrome.tabs.Tab> {
+export async function navigateToUrl(url: string): Promise<chrome.tabs.Tab> {
   // Ensure URL is absolute and valid
   let safeUrl = url;
   if (!url.startsWith('http')) {
@@ -466,18 +631,26 @@ async function navigateToUrl(url: string): Promise<chrome.tabs.Tab> {
     throw new Error(`Invalid URL: ${safeUrl}`);
   }
   
-  console.log(`Navigating to: ${safeUrl}`);
+  console.log(`Navigating to (background): ${safeUrl}`);
   
-  // Find existing idealista tab or create new one
-  const tabs = await chrome.tabs.query({ url: 'https://www.idealista.com/*' });
-  
-  if (tabs.length > 0 && tabs[0].id) {
-    await chrome.tabs.update(tabs[0].id, { url: safeUrl, active: true });
-    return tabs[0];
-  } else {
-    const tab = await chrome.tabs.create({ url: safeUrl, active: true });
-    return tab;
+  // If a dedicated crawl tab is already tracked, verify it still exists
+  if (crawlTabId !== null) {
+    try {
+      const existingTab = await chrome.tabs.get(crawlTabId);
+      if (existingTab && existingTab.id) {
+        await chrome.tabs.update(existingTab.id, { url: safeUrl, active: false });
+        return existingTab;
+      }
+    } catch (_) {
+      // Tab was closed or not found; reset and recreate
+      crawlTabId = null;
+    }
   }
+
+  // Create new inactive background tab dedicated for search crawl
+  const newTab = await chrome.tabs.create({ url: safeUrl, active: false });
+  crawlTabId = newTab.id ?? null;
+  return newTab;
 }
 
 /**

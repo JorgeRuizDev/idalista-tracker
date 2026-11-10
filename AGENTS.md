@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at [specs/005-frontend-filters-insights/plan.md](specs/005-frontend-filters-insights/plan.md)
+at [specs/010-background-crawl-automation/plan.md](specs/010-background-crawl-automation/plan.md)
 <!-- SPECKIT END -->
 
 # Guía Operativa del Proyecto para Agentes

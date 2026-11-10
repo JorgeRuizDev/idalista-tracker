@@ -22,49 +22,8 @@ export function _resetDetailQueueLockForTesting(): void {
   isDetailQueueRunning = false;
 }
 
-/**
- * Check if a title or text indicates a bot challenge (Cloudflare, Turnstile, CAPTCHA).
- */
-export function checkForChallenge(title: string, bodyText: string): boolean {
-  const lowerTitle = (title || '').toLowerCase();
-  const lowerBody = (bodyText || '').toLowerCase();
-
-  // If title or body contains authentic listing markers, it is NOT a challenge!
-  const hasListingMarkers = [
-    'piso en venta',
-    'casa en venta',
-    'ático en venta',
-    'dúplex en venta',
-    'chalet en venta',
-    'piso en alquiler',
-    'alquiler de',
-    'detalles del inmueble',
-    'características',
-    'habitaciones',
-    'dormitorios',
-  ].some(marker => lowerTitle.includes(marker) || lowerBody.includes(marker));
-
-  if (hasListingMarkers) {
-    return false;
-  }
-
-  const challengeIndicators = [
-    'just a moment',
-    'moment please',
-    'verify you are human',
-    'checking your browser',
-    'verificando tu navegador',
-    'un momento, por favor',
-    'atención al cliente: resuelve',
-    'atencion al cliente: resuelve',
-    'challenge-running',
-    'cf-turnstile',
-    'g-recaptcha',
-    'hcaptcha',
-  ];
-
-  return challengeIndicators.some(ind => lowerTitle.includes(ind) || lowerBody.includes(ind));
-}
+import { checkForChallenge } from '../utils/challenge';
+export { checkForChallenge };
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -801,7 +760,7 @@ export async function runFullPendingDetailQueue(
     jitterMaxMs = 6000,
     hydrationDelayMs = 2000,
     pollChallengeIntervalMs = 1500,
-    maxChallengeWaitMs = 120000,
+    maxChallengeWaitMs = 300000, // 5-minute safety timeout for human review
   } = options;
 
   let processed = 0;
@@ -892,9 +851,27 @@ export async function runFullPendingDetailQueue(
           }
 
           if (inspection.isChallenge) {
-            console.warn(`[DetailCrawler] Bot challenge detected for ${listing.idealista_id}. Bringing tab to focus.`);
-            // Bring tab to user focus
+            console.warn(`[DetailCrawler] Bot challenge detected for ${listing.idealista_id}. Bringing tab to focus and notifying user.`);
+            // Bring tab and window to user focus
             await chrome.tabs.update(tabId, { active: true });
+            try {
+              if (tab.windowId && chrome.windows?.update) {
+                await chrome.windows.update(tab.windowId, { focused: true });
+              }
+            } catch (_) {}
+
+            // Dispatch desktop notification
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({
+                type: 'CHALLENGE_DETECTED',
+                payload: {
+                  stage: 'detail',
+                  tab_id: tabId,
+                  url: listing.property_url,
+                  reason: 'antibot_block',
+                },
+              }).catch(() => {});
+            }
 
             onProgress?.({
               total: totalRemaining,
@@ -916,6 +893,14 @@ export async function runFullPendingDetailQueue(
                 // Tab may have navigated or closed
                 break;
               }
+            }
+
+            // Dismiss desktop notification once solved or done
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({
+                type: 'DISMISS_CHALLENGE',
+                payload: { tab_id: tabId },
+              }).catch(() => {});
             }
 
             if (inspection.isChallenge) {

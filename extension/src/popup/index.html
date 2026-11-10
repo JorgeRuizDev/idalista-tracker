@@ -9,7 +9,12 @@
 <body>
   <div class="container">
     <header>
-      <h1>Idalista Crawler</h1>
+      <div>
+        <h1>Idalista Crawler</h1>
+        <div class="header-sub">
+          <span id="popup-version-badge" class="version-badge" title="Build version">v1.0.0</span>
+        </div>
+      </div>
       <div class="status-indicators">
         <span id="server-status" class="status-badge offline" title="Backend Connection">●</span>
         <span id="status-badge" class="badge">Idle</span>
@@ -33,7 +38,10 @@
     </section>
 
     <section id="search-section">
-      <h2>Saved Searches</h2>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h2>Saved Searches</h2>
+        <button id="toggle-all-searches" class="btn-small btn-secondary" style="font-size: 11px;">Marcar todas</button>
+      </div>
       <div id="searches-list" class="searches-list">
         <p class="loading">Loading searches...</p>
       </div>
@@ -90,7 +98,19 @@
     </section>
 
     <footer>
-      <button id="open-settings" class="btn btn-secondary">Settings</button>
+      <div class="footer-actions">
+        <button id="open-settings" class="btn btn-secondary">Settings</button>
+      </div>
+      <div class="footer-meta">
+        <div class="meta-row">
+          <span class="meta-label">Compilación:</span>
+          <span id="popup-build-time" class="meta-value">--</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">Último rastreo:</span>
+          <span id="popup-last-crawl" class="meta-value">--</span>
+        </div>
+      </div>
     </footer>
   </div>
 
