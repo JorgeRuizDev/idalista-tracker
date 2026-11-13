@@ -32,7 +32,12 @@ class MediaService:
             timeout_seconds: HTTP download timeout per photo.
         """
         self.media_root = Path(media_root or settings.MEDIA_ROOT)
-        self.property_media_dir = Path(property_media_dir or settings.PROPERTY_MEDIA_DIR)
+        if property_media_dir:
+            self.property_media_dir = Path(property_media_dir)
+        elif media_root:
+            self.property_media_dir = self.media_root / "properties"
+        else:
+            self.property_media_dir = Path(settings.PROPERTY_MEDIA_DIR)
         self.concurrency_limit = concurrency_limit
         self.timeout_seconds = timeout_seconds
 
@@ -76,6 +81,41 @@ class MediaService:
         """
         clean_rel = relative_path.lstrip("/")
         return f"/media/{clean_rel}"
+
+    def resolve_safe_path(self, relative_path: str, check_exists: bool = False) -> Optional[Path]:
+        """Resolve and validate a relative media path against directory traversal.
+
+        Args:
+            relative_path: The relative path to resolve.
+            check_exists: If True, require that the target file actually exists on disk.
+
+        Returns:
+            Resolved Path object if valid and contained within media_root, otherwise None.
+        """
+        if not relative_path or not isinstance(relative_path, str):
+            return None
+
+        allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+        clean_rel = Path(relative_path.strip().lstrip("/"))
+        if clean_rel.suffix.lower() not in allowed_extensions:
+            return None
+
+        resolved_root = self.media_root.resolve()
+        try:
+            target_path = (resolved_root / clean_rel).resolve()
+        except Exception:
+            return None
+
+        try:
+            if not target_path.is_relative_to(resolved_root):
+                return None
+        except (ValueError, AttributeError):
+            return None
+
+        if check_exists and not target_path.is_file():
+            return None
+
+        return target_path
 
     async def _download_single_photo(
         self,

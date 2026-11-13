@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -74,7 +76,7 @@ class Property(Base):
     property_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     location: Mapped[str] = mapped_column(String(500), nullable=False)
     original_price: Mapped[int] = mapped_column(Integer, nullable=False)
-    current_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    current_price: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     price_drop_percentage: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     size_m2: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     bedrooms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -82,7 +84,24 @@ class Property(Base):
     has_elevator: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     property_url: Mapped[str] = mapped_column(String(500), nullable=False)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    image_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_data: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    canonical_zone: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="Burgos Centro / Otras Zonas",
+        index=True,
+    )
+    discount_pct: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        index=True,
+    )
+    price_per_m2: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
     email_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("email_source.id"), nullable=True
     )
@@ -159,8 +178,34 @@ class Property(Base):
         cascade="all, delete-orphan",
     )
 
+    __table_args__ = (
+        Index("ix_property_status_canonical_zone", "status", "canonical_zone"),
+    )
+
     def __repr__(self) -> str:
         return f"<Property(id={self.id}, idealista_id={self.idealista_id}, title={self.title[:30]}...)>"
+
+
+@event.listens_for(Property, "before_insert")
+@event.listens_for(Property, "before_update")
+def auto_populate_property_computed_fields(mapper, connection, target):
+    """Automatically populate canonical_zone, discount_pct, and price_per_m2 on save."""
+    from src.services.zone_service import normalize_zone
+
+    if not target.canonical_zone or target.canonical_zone == "Burgos Centro / Otras Zonas":
+        computed_zone = normalize_zone(target.title or "", target.location or "")
+        if computed_zone:
+            target.canonical_zone = computed_zone
+
+    orig = target.original_price or 0
+    curr = target.current_price or 0
+    if orig > curr and orig > 0:
+        target.discount_pct = round(((orig - curr) / orig) * 100.0, 1)
+    elif target.discount_pct is None:
+        target.discount_pct = 0.0
+
+    if (not target.price_per_m2) and target.size_m2 and target.size_m2 > 0 and curr > 0:
+        target.price_per_m2 = round(curr / target.size_m2)
 
 
 class CrawlSession(Base):
@@ -465,6 +510,20 @@ engine = create_engine(
     connect_args=settings.database_connection_args,
     echo=settings.LOG_LEVEL == "DEBUG",
 )
+
+
+@event.listens_for(engine, "connect")
+def set_sqlite_pragmas(dbapi_connection, connection_record):
+    """Configure SQLite pragmas for high concurrency, WAL mode, and memory cache."""
+    if settings.DATABASE_URL.startswith("sqlite"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode = WAL")
+        cursor.execute("PRAGMA synchronous = NORMAL")
+        cursor.execute("PRAGMA busy_timeout = 5000")
+        cursor.execute("PRAGMA cache_size = -64000")
+        cursor.execute("PRAGMA mmap_size = 268435456")
+        cursor.close()
+
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

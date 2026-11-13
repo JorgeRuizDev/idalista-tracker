@@ -1,0 +1,185 @@
+openapi: 3.0.3
+info:
+  title: Idalista Tracker Property API (Optimized)
+  version: 1.1.0
+  description: High-performance property explorer API with pure SQL filtering, pagination, and disk-backed static media serving.
+paths:
+  /api/v1/properties:
+    get:
+      summary: List properties with SQL pagination and canonical filters
+      description: Returns a paginated list of properties. Query filters and pagination are executed entirely in SQLite.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, active, sold, missing]
+            default: all
+        - name: zone
+          in: query
+          schema:
+            type: string
+          description: Canonical zone filter (indexed in SQLite).
+        - name: min_price
+          in: query
+          schema:
+            type: integer
+        - name: max_price
+          in: query
+          schema:
+            type: integer
+        - name: has_price_drop
+          in: query
+          schema:
+            type: boolean
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [discount_desc, days_desc, price_asc, price_desc, m2_asc, date_desc, created_at]
+            default: discount_desc
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Paginated property results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyListResponse'
+
+  /api/v1/properties/{idealista_id}/image:
+    get:
+      summary: Retrieve property cover image from disk
+      description: Serves the primary cover image directly from local disk media storage with strict path containment.
+      parameters:
+        - name: idealista_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Idealista property ID
+      responses:
+        '200':
+          description: Image binary stream with browser caching headers
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: public, max-age=86400
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid path or traversal attempt detected
+        '404':
+          description: Property or image file not found
+
+components:
+  schemas:
+    PropertyItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        idealista_id:
+          type: string
+        title:
+          type: string
+        address:
+          type: string
+        zone:
+          type: string
+        property_type:
+          type: string
+          nullable: true
+        original_price:
+          type: integer
+        current_price:
+          type: integer
+        discount_amount:
+          type: integer
+        discount_pct:
+          type: number
+        size_m2:
+          type: integer
+          nullable: true
+        price_per_m2:
+          type: integer
+          nullable: true
+        bedrooms:
+          type: integer
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        has_elevator:
+          type: boolean
+          nullable: true
+        status:
+          type: string
+        first_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        sold_at:
+          type: string
+          format: date-time
+          nullable: true
+        days_on_market:
+          type: integer
+          nullable: true
+        photos:
+          type: array
+          items:
+            type: string
+        property_url:
+          type: string
+        price_history_count:
+          type: integer
+        detail_status:
+          type: string
+        discard_reason:
+          type: string
+          nullable: true
+
+    PropertyListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyItem'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer

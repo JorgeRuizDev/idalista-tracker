@@ -61,6 +61,8 @@ def test_legacy_migration_isolates_existing_properties(tmp_path):
 
     # 2. Run migration on this database
     migrate_database(engine)
+    from src.database.migrate_performance import migrate_performance_database
+    migrate_performance_database(engine, run_vacuum=False)
 
     # 3. Verify all 3 properties have detail_status = 'legacy'
     Session = sessionmaker(bind=engine)

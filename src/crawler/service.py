@@ -145,12 +145,14 @@ class CrawlerService:
         for parsed_prop in parsed_properties:
             try:
                 new, updated = self._save_property(parsed_prop, email_source.id)
+                self.db.commit()
                 if new:
                     result.new_properties += 1
                 if updated:
                     result.price_updates += 1
                 properties_count += 1
             except Exception as e:
+                self.db.rollback()
                 logger.error(f"Error saving property {parsed_prop.idealista_id}: {e}")
                 result.errors += 1
 
@@ -236,9 +238,15 @@ class CrawlerService:
             email_id=email_id,
         )
         self.db.add(price_history)
+        self.db.commit()
 
-        # Download and store image
-        PropertyService.download_and_store_image(property_obj)
+        # Download and store image outside open database write transaction
+        if property_obj.image_url:
+            if PropertyService.download_and_store_image(property_obj):
+                try:
+                    self.db.commit()
+                except Exception:
+                    self.db.rollback()
 
         logger.info(f"Created new property: {parsed.idealista_id} - {parsed.title[:50]}...")
         return property_obj

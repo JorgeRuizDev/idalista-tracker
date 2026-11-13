@@ -54,6 +54,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 idealista_properties.db
+*.db-shm
+*.db-wal
+*.db-journal
 test.db
 
 # Media storage

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     """Root directory for persistent media storage."""
     PROPERTY_MEDIA_DIR: str = "data/media/properties"
     """Directory for downloaded property photos."""
+    PROPERTY_COVER_FILENAME: str = "cover.jpg"
+    """Default filename for listing cover images on disk."""
 
     @property
     def database_connection_args(self) -> dict:
@@ -49,7 +51,7 @@ class Settings(BaseSettings):
             Dict with connection arguments for SQLAlchemy create_engine.
         """
         if self.DATABASE_URL.startswith("sqlite"):
-            return {"check_same_thread": False}
+            return {"check_same_thread": False, "timeout": 30.0}
         return {}
 
 

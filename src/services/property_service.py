@@ -6,8 +6,8 @@ import urllib.request
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, asc, case, desc, func, or_
+from sqlalchemy.orm import Session, defer, selectinload
 
 from src.database.models import (
     DetailCrawlAttempt,
@@ -150,7 +150,7 @@ class PropertyService:
         Returns:
             Tuple of (properties list, total count).
         """
-        query = self.db.query(Property)
+        query = self.db.query(Property).options(defer(Property.image_data))
 
         # Date parsing helper for interval movement filters
         dt_from: Optional[datetime] = None
@@ -219,26 +219,92 @@ class PropertyService:
         if location:
             query = query.filter(Property.location.ilike(f"%{location}%"))
 
-        all_properties = query.all()
+        # Zone filter executed in SQL
+        if zone and zone != "all":
+            z_clean = zone.strip()
+            query = query.filter(
+                or_(
+                    Property.canonical_zone == z_clean,
+                    Property.canonical_zone.ilike(f"%{z_clean}%"),
+                )
+            )
 
-        # Compute domain metrics on all candidates
-        for prop in all_properties:
-            p_zone = normalize_zone(prop.title, prop.location)
-            setattr(prop, "zone", p_zone)
+        # Has price drop filter executed in SQL
+        if has_price_drop:
+            query = query.filter(
+                or_(
+                    Property.discount_pct > 0,
+                    Property.price_drop_percentage > 0,
+                    Property.original_price > Property.current_price,
+                )
+            )
 
+        # Generic date filtering executed in SQL if movement_type is not active
+        if not movement_type or movement_type == "all":
+            date_col = case((Property.status == "sold", Property.sold_at), else_=Property.first_seen_at)
+            if date_from and dt_from:
+                query = query.filter(date_col.isnot(None), date_col >= dt_from)
+            if date_to and dt_to:
+                query = query.filter(date_col.isnot(None), date_col < dt_to)
+
+        # Search substring matching executed in SQL
+        if search:
+            s_clean = search.strip()
+            query = query.filter(
+                or_(
+                    Property.title.ilike(f"%{s_clean}%"),
+                    Property.location.ilike(f"%{s_clean}%"),
+                    Property.canonical_zone.ilike(f"%{s_clean}%"),
+                    Property.idealista_id.ilike(f"%{s_clean}%"),
+                )
+            )
+
+        # Sorting in SQL
+        is_desc = sort_order.lower() == "desc"
+        if sort_by in ("price_asc", "m2_asc"):
+            is_desc = False
+        elif sort_by in ("discount_desc", "days_desc", "price_desc", "date_desc"):
+            is_desc = True
+
+        date_col = case((Property.status == "sold", Property.sold_at), else_=Property.first_seen_at)
+
+        if sort_by == "discount_desc":
+            query = query.order_by(
+                desc(Property.discount_pct),
+                desc(Property.original_price - Property.current_price),
+            )
+        elif sort_by == "days_desc":
+            query = query.order_by(asc(Property.first_seen_at))
+        elif sort_by in ("price_asc", "price_desc"):
+            query = query.order_by(desc(Property.current_price) if is_desc else asc(Property.current_price))
+        elif sort_by == "m2_asc":
+            query = query.order_by(asc(Property.price_per_m2).nulls_last())
+        elif sort_by == "date_desc":
+            query = query.order_by(desc(date_col).nulls_last())
+        elif sort_by == "created_at":
+            query = query.order_by(desc(Property.created_at) if is_desc else asc(Property.created_at))
+        elif hasattr(Property, sort_by):
+            col = getattr(Property, sort_by)
+            query = query.order_by(desc(col) if is_desc else asc(col))
+        else:
+            query = query.order_by(desc(Property.created_at))
+
+        total = query.count()
+        paginated = query.offset(offset).limit(limit).all()
+
+        # Compute presentation fields only on paginated subset
+        for prop in paginated:
             orig_p = prop.original_price or 0
             cur_p = prop.current_price or 0
-            if orig_p and cur_p and orig_p > cur_p:
-                disc_amount = orig_p - cur_p
-                disc_pct = round((disc_amount / orig_p) * 100.0, 1)
-            else:
-                disc_amount = 0
-                disc_pct = 0.0
+            disc_amount = max(0, orig_p - cur_p) if (orig_p and cur_p) else 0
 
+            disc_pct = round(((orig_p - cur_p) / orig_p) * 100.0, 1) if (orig_p and cur_p and orig_p > cur_p) else 0.0
+
+            setattr(prop, "zone", prop.canonical_zone or normalize_zone(prop.title, prop.location))
             setattr(prop, "discount_amount", disc_amount)
-            setattr(prop, "discount_pct", disc_pct)
+            setattr(prop, "discount_pct", prop.discount_pct if (prop.discount_pct is not None and prop.discount_pct > 0) else disc_pct)
+            setattr(prop, "price_per_m2", prop.price_per_m2 if prop.price_per_m2 is not None else (round(cur_p / prop.size_m2) if (prop.size_m2 and cur_p) else None))
 
-            # Days on market
             days_on_market = None
             if prop.first_seen_at:
                 if prop.status == "sold":
@@ -249,94 +315,8 @@ class PropertyService:
                     days_on_market = max(0, (datetime.utcnow() - prop.first_seen_at).days)
             setattr(prop, "days_on_market", days_on_market)
 
-            # Price per m2
-            price_per_m2 = None
-            if prop.size_m2 and prop.size_m2 > 0 and cur_p > 0:
-                price_per_m2 = round(cur_p / prop.size_m2)
-            setattr(prop, "price_per_m2", price_per_m2)
-
-            # Address snippet
             address = prop.location.split(",")[0].strip() if prop.location else (prop.title or "")
             setattr(prop, "address", address)
-
-        # Apply post-computation filters
-        filtered = all_properties
-
-        if has_price_drop:
-            filtered = [
-                p
-                for p in filtered
-                if getattr(p, "discount_amount", 0) > 0 or (p.price_drop_percentage or 0) > 0
-            ]
-
-        if zone and zone != "all":
-            z_lower = zone.lower().strip()
-            filtered = [
-                p
-                for p in filtered
-                if getattr(p, "zone") == zone
-                or z_lower in getattr(p, "zone", "").lower()
-                or getattr(p, "zone", "").lower() in z_lower
-            ]
-
-        # Only apply generic date filtering if movement_type is not active
-        if not movement_type or movement_type == "all":
-            if date_from and dt_from:
-                filtered = [
-                    p
-                    for p in filtered
-                    if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
-                    and (p.sold_at if p.status == "sold" else p.first_seen_at) >= dt_from
-                ]
-
-            if date_to and dt_to:
-                filtered = [
-                    p
-                    for p in filtered
-                    if (p.sold_at if p.status == "sold" else p.first_seen_at) is not None
-                    and (p.sold_at if p.status == "sold" else p.first_seen_at) < dt_to
-                ]
-
-        if search:
-            s_lower = search.lower().strip()
-            filtered = [
-                p
-                for p in filtered
-                if s_lower in (p.title or "").lower()
-                or s_lower in (p.location or "").lower()
-                or s_lower in getattr(p, "zone", "").lower()
-                or s_lower in (p.idealista_id or "").lower()
-            ]
-
-        # Sorting
-        def sort_key(p: Property) -> Any:
-            if sort_by == "discount_desc":
-                return (getattr(p, "discount_pct", 0.0), getattr(p, "discount_amount", 0))
-            elif sort_by == "days_desc":
-                return getattr(p, "days_on_market", 0) or 0
-            elif sort_by == "price_asc":
-                return p.current_price or 0
-            elif sort_by == "price_desc":
-                return p.current_price or 0
-            elif sort_by == "m2_asc":
-                return getattr(p, "price_per_m2", 0) or 0
-            elif sort_by == "date_desc":
-                dt = p.sold_at if p.status == "sold" else p.first_seen_at
-                return dt or datetime.min
-            elif sort_by == "created_at":
-                return p.created_at or datetime.min
-            return getattr(p, sort_by, p.created_at) or datetime.min
-
-        is_desc = sort_order.lower() == "desc"
-        if sort_by in ("price_asc", "m2_asc"):
-            is_desc = False
-        elif sort_by in ("discount_desc", "days_desc", "price_desc", "date_desc"):
-            is_desc = True
-
-        filtered.sort(key=sort_key, reverse=is_desc)
-
-        total = len(filtered)
-        paginated = filtered[offset : offset + limit]
 
         # Populate photos and price history counts only for paginated items
         if paginated:
@@ -819,13 +799,22 @@ class PropertyService:
         changes = []
 
         if not existing:
-            # Create new property
+            # Create new property with precomputed performance fields
+            canonical_zone = normalize_zone(title, location)
+            orig_p = price or 0
+            cur_p = price or 0
+            discount_pct = 0.0
+            price_per_m2 = round(cur_p / square_meters) if (square_meters and square_meters > 0 and cur_p > 0) else None
+
             prop = Property(
                 idealista_id=external_id,
                 title=title,
                 location=location,
                 original_price=price,
                 current_price=price,
+                canonical_zone=canonical_zone,
+                discount_pct=discount_pct,
+                price_per_m2=price_per_m2,
                 size_m2=square_meters,
                 bedrooms=bedrooms,
                 floor=floor_info,
@@ -854,7 +843,7 @@ class PropertyService:
             )
             self.db.add(price_history)
 
-            # Download and store image
+            # Download and store image on disk
             PropertyService.download_and_store_image(prop)
 
             action = "created"
@@ -927,6 +916,19 @@ class PropertyService:
                 )
                 existing.bedrooms = bedrooms
 
+            # Recompute persistent performance columns
+            existing.canonical_zone = normalize_zone(existing.title, existing.location)
+            orig_p = existing.original_price or 0
+            cur_p = existing.current_price or 0
+            if orig_p and cur_p and orig_p > cur_p:
+                existing.discount_pct = round(((orig_p - cur_p) / orig_p) * 100.0, 1)
+            else:
+                existing.discount_pct = 0.0
+            if existing.size_m2 and existing.size_m2 > 0 and cur_p > 0:
+                existing.price_per_m2 = round(cur_p / existing.size_m2)
+            else:
+                existing.price_per_m2 = None
+
             action = "updated" if changes else "seen"
             property_id = existing.id
 
@@ -964,7 +966,7 @@ class PropertyService:
 
     @staticmethod
     def download_and_store_image(prop: Property) -> bool:
-        """Download image from prop.image_url and store as base64 in prop.image_data.
+        """Download image from prop.image_url and persist directly to disk.
 
         Args:
             prop: Property object with image_url set.
@@ -972,7 +974,7 @@ class PropertyService:
         Returns:
             True if image was downloaded and stored successfully.
         """
-        if not prop.image_url or prop.image_data:
+        if not prop.image_url or (prop.image_data and not prop.image_data.startswith("data:")):
             return False
 
         try:
@@ -988,7 +990,6 @@ class PropertyService:
             req = urllib.request.Request(prop.image_url, headers=headers)
             with urllib.request.urlopen(req, timeout=15) as response:
                 image_bytes = response.read()
-                content_type = response.headers.get("Content-Type", "image/jpeg")
 
             if len(image_bytes) < 100:
                 logger.warning(
@@ -996,10 +997,16 @@ class PropertyService:
                 )
                 return False
 
-            b64 = base64.b64encode(image_bytes).decode("ascii")
-            prop.image_data = f"data:{content_type};base64,{b64}"
+            from src.services.media_service import MediaService
+            media_svc = MediaService()
+            prop_dir = media_svc.get_property_dir(prop.idealista_id)
+            cover_path = prop_dir / "cover.jpg"
+            cover_path.write_bytes(image_bytes)
+
+            rel_path = f"properties/{prop.idealista_id}/cover.jpg"
+            prop.image_data = rel_path
             logger.info(
-                f"Downloaded image for property {prop.idealista_id}: {len(image_bytes)} bytes"
+                f"Downloaded cover image to disk for property {prop.idealista_id}: {len(image_bytes)} bytes"
             )
             return True
         except Exception as e:
@@ -1007,6 +1014,78 @@ class PropertyService:
                 f"Failed to download image for property {prop.idealista_id} from {prop.image_url}: {e}"
             )
             return False
+
+    def create_or_update_property(self, data: dict) -> Property:
+        """Create or update a property directly with auto-computed performance fields.
+
+        Args:
+            data: Property attribute dictionary.
+
+        Returns:
+            Created or updated Property instance.
+        """
+        idealista_id = str(data["idealista_id"])
+        existing = self.get_property_by_idealista_id(idealista_id)
+
+        title = data.get("title", f"Property {idealista_id}")
+        location = data.get("location", "")
+        orig_p = data.get("original_price") or data.get("current_price", 0)
+        cur_p = data.get("current_price", 0)
+        size_m2 = data.get("size_m2")
+
+        canonical_zone = data.get("canonical_zone") or normalize_zone(title, location)
+        discount_pct = data.get("discount_pct")
+        if discount_pct is None:
+            discount_pct = round(((orig_p - cur_p) / orig_p) * 100.0, 1) if (orig_p and cur_p and orig_p > cur_p) else 0.0
+        price_per_m2 = data.get("price_per_m2")
+        if price_per_m2 is None:
+            price_per_m2 = round(cur_p / size_m2) if (size_m2 and size_m2 > 0 and cur_p > 0) else None
+
+        if not existing:
+            prop = Property(
+                idealista_id=idealista_id,
+                title=title,
+                property_type=data.get("property_type"),
+                location=location,
+                original_price=orig_p,
+                current_price=cur_p,
+                price_drop_percentage=data.get("price_drop_percentage", discount_pct),
+                discount_pct=discount_pct,
+                size_m2=size_m2,
+                price_per_m2=price_per_m2,
+                bedrooms=data.get("bedrooms"),
+                floor=data.get("floor"),
+                has_elevator=data.get("has_elevator"),
+                property_url=data.get(
+                    "property_url", f"https://www.idealista.com/inmueble/{idealista_id}/"
+                ),
+                image_url=data.get("image_url"),
+                image_data=data.get("image_data"),
+                canonical_zone=canonical_zone,
+                first_seen_at=datetime.utcnow(),
+                last_seen_at=datetime.utcnow(),
+                status=data.get("status", "active"),
+                is_active=data.get("is_active", True),
+                detail_status=data.get("detail_status", "pending"),
+                backend_attempts=data.get("backend_attempts", 0),
+                extension_attempts=data.get("extension_attempts", 0),
+                fallback_to_extension=data.get("fallback_to_extension", False),
+            )
+            self.db.add(prop)
+            self.db.commit()
+            self.db.refresh(prop)
+            return prop
+        else:
+            for k, v in data.items():
+                if hasattr(existing, k) and v is not None:
+                    setattr(existing, k, v)
+            existing.canonical_zone = canonical_zone
+            existing.discount_pct = discount_pct
+            existing.price_per_m2 = price_per_m2
+            existing.last_seen_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(existing)
+            return existing
 
     def create_property(self, data: dict) -> Property:
         """Create a new property directly from dictionary attributes.
@@ -1018,15 +1097,31 @@ class PropertyService:
             Created Property instance.
         """
         idealista_id = str(data["idealista_id"])
+        title = data.get("title", f"Property {idealista_id}")
+        location = data.get("location", "")
+        orig_p = data.get("original_price") or data.get("current_price", 0)
+        cur_p = data.get("current_price", 0)
+        size_m2 = data.get("size_m2")
+
+        canonical_zone = data.get("canonical_zone") or normalize_zone(title, location)
+        discount_pct = data.get("discount_pct")
+        if discount_pct is None:
+            discount_pct = round(((orig_p - cur_p) / orig_p) * 100.0, 1) if (orig_p and cur_p and orig_p > cur_p) else 0.0
+        price_per_m2 = data.get("price_per_m2")
+        if price_per_m2 is None:
+            price_per_m2 = round(cur_p / size_m2) if (size_m2 and size_m2 > 0 and cur_p > 0) else None
+
         prop = Property(
             idealista_id=idealista_id,
-            title=data.get("title", f"Property {idealista_id}"),
+            title=title,
             property_type=data.get("property_type"),
-            location=data.get("location", ""),
-            original_price=data.get("original_price") or data.get("current_price", 0),
-            current_price=data.get("current_price", 0),
-            price_drop_percentage=data.get("price_drop_percentage"),
-            size_m2=data.get("size_m2"),
+            location=location,
+            original_price=orig_p,
+            current_price=cur_p,
+            price_drop_percentage=data.get("price_drop_percentage", discount_pct),
+            discount_pct=discount_pct,
+            size_m2=size_m2,
+            price_per_m2=price_per_m2,
             bedrooms=data.get("bedrooms"),
             floor=data.get("floor"),
             has_elevator=data.get("has_elevator"),
@@ -1035,6 +1130,7 @@ class PropertyService:
             ),
             image_url=data.get("image_url"),
             image_data=data.get("image_data"),
+            canonical_zone=canonical_zone,
             first_seen_at=datetime.utcnow(),
             last_seen_at=datetime.utcnow(),
             status=data.get("status", "active"),
@@ -1300,18 +1396,13 @@ class PropertyService:
             )
             self.db.add(photo)
 
-        # Ensure primary image blob is persisted locally in property.image_data
+        # Ensure primary image path is persisted locally in property.image_data as relative path
         if downloaded:
             try:
                 first_local = downloaded[0]["local_file_path"].lstrip("/")
-                first_disk_path = media_service.media_root / first_local
-                if first_disk_path.exists() and first_disk_path.stat().st_size > 0:
-                    raw_bytes = first_disk_path.read_bytes()
-                    mime = downloaded[0].get("content_type", "image/jpeg")
-                    b64 = base64.b64encode(raw_bytes).decode("ascii")
-                    prop.image_data = f"data:{mime};base64,{b64}"
+                prop.image_data = first_local
             except Exception as e:
-                logger.warning(f"Could not persist primary image blob for {prop.idealista_id}: {e}")
+                logger.warning(f"Could not persist primary image reference for {prop.idealista_id}: {e}")
 
         prop.detail_status = "completed"
         prop.detail_updated_at = datetime.utcnow()

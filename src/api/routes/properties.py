@@ -183,73 +183,86 @@ async def get_property_image(
     idealista_id: str,
     db: Session = Depends(get_db),
 ):
-    """Serve a property's downloaded image.
+    """Serve a property's cover image from local disk with path containment checks.
 
     Falls back to redirecting to the original image_url if no local copy exists.
     """
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import FileResponse, RedirectResponse
 
     prop = db.query(Property).filter(Property.idealista_id == idealista_id).first()
 
     if not prop:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
 
-    if prop.image_data:
-        # Parse the data URL: data:image/jpeg;base64,xxxx
-        match = re.match(r"data:(.+);base64,(.+)", prop.image_data)
-        if match:
-            media_type = match.group(1)
-            raw_bytes = base64.b64decode(match.group(2))
-            return Response(
-                content=raw_bytes,
-                media_type=media_type,
-                headers={"Cache-Control": "public, max-age=86400"},
-            )
+    media_service = MediaService()
 
-    # Check local downloaded gallery photos
+    # 1. Check relative disk path in prop.image_data
+    if prop.image_data:
+        if not prop.image_data.startswith("data:"):
+            safe_path = media_service.resolve_safe_path(prop.image_data, check_exists=True)
+            if safe_path:
+                ext = safe_path.suffix.lower()
+                media_type = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+                return FileResponse(
+                    path=str(safe_path),
+                    media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+        else:
+            # Backward-compatible fallback for unmigrated Base64 data URLs
+            match = re.match(r"data:(.+);base64,(.+)", prop.image_data)
+            if match:
+                media_type = match.group(1)
+                raw_bytes = base64.b64decode(match.group(2))
+                return Response(
+                    content=raw_bytes,
+                    media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+
+    # 2. Check standard disk cover path: data/media/properties/{id}/cover.jpg
+    standard_rel = f"properties/{prop.idealista_id}/cover.jpg"
+    safe_path = media_service.resolve_safe_path(standard_rel, check_exists=True)
+    if safe_path:
+        prop.image_data = standard_rel
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        return FileResponse(
+            path=str(safe_path),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    # 3. Check downloaded gallery photos
     if prop.photos:
         first_photo = sorted(prop.photos, key=lambda x: x.sequence_index)[0]
-        media_service = MediaService()
-        local_disk_path = media_service.media_root / first_photo.local_file_path.lstrip("/")
-        if local_disk_path.exists() and local_disk_path.stat().st_size > 0:
-            raw_bytes = local_disk_path.read_bytes()
+        safe_photo_path = media_service.resolve_safe_path(first_photo.local_file_path, check_exists=True)
+        if safe_photo_path:
             content_type = first_photo.content_type or "image/jpeg"
-            try:
-                b64 = base64.b64encode(raw_bytes).decode("ascii")
-                prop.image_data = f"data:{content_type};base64,{b64}"
-                db.commit()
-            except Exception:
-                db.rollback()
-            return Response(
-                content=raw_bytes,
+            return FileResponse(
+                path=str(safe_photo_path),
                 media_type=content_type,
                 headers={"Cache-Control": "public, max-age=86400"},
             )
 
+    # 4. Fallback to download or redirect to original image_url
     if prop.image_url:
         try:
-            req = urllib.request.Request(
-                prop.image_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                },
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                raw_bytes = resp.read()
-                content_type = resp.headers.get("Content-Type", "image/jpeg")
-                try:
-                    b64 = base64.b64encode(raw_bytes).decode("ascii")
-                    prop.image_data = f"data:{content_type};base64,{b64}"
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                return Response(
-                    content=raw_bytes,
-                    media_type=content_type,
-                    headers={"Cache-Control": "public, max-age=86400"},
-                )
+            success = PropertyService.download_and_store_image(prop)
+            if success:
+                db.commit()
+                safe_path = media_service.resolve_safe_path(prop.image_data, check_exists=True)
+                if safe_path:
+                    return FileResponse(
+                        path=str(safe_path),
+                        media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"},
+                    )
         except Exception:
-            return RedirectResponse(url=prop.image_url)
+            db.rollback()
+        return RedirectResponse(url=prop.image_url)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No image available")
 
